@@ -1,0 +1,26 @@
+[package]
+name = "trustychip"
+version = "0.1.0"
+authors = ["Alex Reisner <1683937+reisnera@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bitvec = { version = "0.21", default-features = false, features = ["alloc", "std"] }
+libretro-defs = { path = "libretro-defs" }
+once_cell = "1.7"
+smallvec = "1.6"
+static_assertions = "1.1"
+
+[workspace]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true

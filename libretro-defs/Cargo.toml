@@ -1,0 +1,10 @@
+[package]
+name = "libretro-defs"
+version = "0.1.0"
+authors = ["Alex Reisner <1683937+reisnera@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+bindgen = "0.57"
