@@ -10,6 +10,7 @@ To build:
 
 ```shell
 git clone --recurse-submodules https://github.com/reisnera/trustychip.git
+cd trustychip
 cargo build (or cargo build --release)
 ```
 
