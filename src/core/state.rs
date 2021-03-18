@@ -14,22 +14,7 @@ pub struct ChipState {
     pub mem: ChipMem,
     pub screen: ChipScreen,
     pub stack: SmallVec<[usize; 16]>,
-    pub v0: Register8,
-    pub v1: Register8,
-    pub v2: Register8,
-    pub v3: Register8,
-    pub v4: Register8,
-    pub v5: Register8,
-    pub v6: Register8,
-    pub v7: Register8,
-    pub v8: Register8,
-    pub v9: Register8,
-    pub va: Register8,
-    pub vb: Register8,
-    pub vc: Register8,
-    pub vd: Register8,
-    pub ve: Register8,
-    pub vf: Register8,
+    pub v: [u8; 16],
     pub dt: Register8,
     pub st: Register8,
     pub sp: Register8,
@@ -137,7 +122,7 @@ pub fn deinit() {
     *guard = None;
 }
 
-// Executes one Chip8 instruction and updates the state appropriately
+/// Executes one Chip-8 instruction and updates the state appropriately.
 pub fn tick() {
     let mut guard = CHIP_STATE.lock().unwrap();
     let state = guard.as_deref_mut().expect("CHIP_STATE not initialized");
@@ -150,19 +135,74 @@ pub fn tick() {
     let (prefix, stem) = instr_bits.split_at(4);
 
     match prefix.load::<u8>() {
-        0x0 => {
-            let inst_rem = stem.load_be::<u16>();
-            if inst_rem == 0x0E0 {
+        0x0 => match stem.load_be::<u16>() {
+            // Clear the display
+            0x0E0 => {
                 state.screen = Default::default();
                 todo!("0x00E0 clear display");
-            } else if inst_rem == 0x0EE {
+            }
+            // Return from a subroutine
+            0x0EE => {
                 state.pc = state.stack.pop().unwrap_or_else(|| {
                     cb::log_error("tick: cannot pop from empty Chip8 stack");
                     panic!();
                 });
                 preserve_pc = true;
-            } else {
-                cb::log_info("tick: ignored instruction to jump to machine code address");
+            }
+            // Unused: jump to a machine code address
+            _ => cb::log_info("tick: ignored instruction to jump to machine code address"),
+        },
+
+        // 1nnn - Jump to location
+        0x1 => {
+            state.pc = stem.load_be();
+            preserve_pc = true;
+        }
+
+        // 2nnn - Call a subroutine
+        0x2 => {
+            state.stack.push(state.pc + 2);
+            state.pc = stem.load_be();
+            preserve_pc = true;
+        }
+
+        // 3xkk - Skip next instruction if Vx = kk
+        0x3 => {
+            let (x, kk) = stem.split_at(4);
+            let x: usize = x.load();
+            let kk: u8 = kk.load();
+            if state.v[x] == kk {
+                state.pc += 2;
+            }
+        }
+
+        // 4xkk - Skip next instruction if Vx != kk
+        0x4 => {
+            let (x, kk) = stem.split_at(4);
+            let x: usize = x.load();
+            let kk: u8 = kk.load();
+            if state.v[x] != kk {
+                state.pc += 2;
+            }
+        }
+
+        // 5xy0 - Skip next instruction if Vx = Vy
+        0x5 => {
+            let (x, rest) = stem.split_at(4);
+            let (y, rest) = rest.split_at(4);
+
+            if rest.load::<u32>() != 0 {
+                cb::log_error(format!(
+                    "tick: invalid instruction {:x?}",
+                    instr_bits.load_be::<u16>()
+                ));
+                panic!();
+            }
+
+            let x: usize = x.load();
+            let y: usize = y.load();
+            if state.v[x] == state.v[y] {
+                state.pc += 2;
             }
         }
 
