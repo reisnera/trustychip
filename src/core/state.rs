@@ -169,8 +169,8 @@ pub fn tick() {
         // 3xkk - Skip next instruction if Vx = kk
         0x3 => {
             let (x, kk) = stem.split_at(4);
-            let x: usize = x.load();
-            let kk: u8 = kk.load();
+            let x: usize = x.load_be();
+            let kk: u8 = kk.load_be();
             if state.v[x] == kk {
                 state.pc += 2;
             }
@@ -179,8 +179,8 @@ pub fn tick() {
         // 4xkk - Skip next instruction if Vx != kk
         0x4 => {
             let (x, kk) = stem.split_at(4);
-            let x: usize = x.load();
-            let kk: u8 = kk.load();
+            let x: usize = x.load_be();
+            let kk: u8 = kk.load_be();
             if state.v[x] != kk {
                 state.pc += 2;
             }
@@ -189,9 +189,9 @@ pub fn tick() {
         // 5xy0 - Skip next instruction if Vx = Vy
         0x5 => {
             let (x, rest) = stem.split_at(4);
-            let (y, rest) = rest.split_at(4);
+            let (y, suffix) = rest.split_at(4);
 
-            if rest.load::<u32>() != 0 {
+            if suffix.load::<u8>() != 0 {
                 cb::log_error(format!(
                     "tick: invalid instruction {:x?}",
                     instr_bits.load_be::<u16>()
@@ -199,14 +199,34 @@ pub fn tick() {
                 panic!();
             }
 
-            let x: usize = x.load();
-            let y: usize = y.load();
+            let x: usize = x.load_be();
+            let y: usize = y.load_be();
             if state.v[x] == state.v[y] {
                 state.pc += 2;
             }
         }
 
-        _ => todo!(),
+        // 6xkk - Set Vx = kk
+        0x6 => {
+            let (x, kk) = stem.split_at(4);
+            let x: usize = x.load_be();
+            state.v[x] = kk.load_be();
+        }
+
+        // 7xkk - Set Vx = Vx + kk
+        0x7 => {
+            let (x, kk) = stem.split_at(4);
+            let x: usize = x.load_be();
+            state.v[x] = state.v[x].wrapping_add(kk.load_be());
+        }
+
+        _ => {
+            cb::log_error(format!(
+                "tick: instruction {:x?} not yet implemented",
+                instr_bits.load_be::<u16>()
+            ));
+            todo!();
+        }
     }
 
     if preserve_pc == false {
