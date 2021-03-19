@@ -1,4 +1,4 @@
-use crate::{callbacks as cb, constants::*};
+use crate::{callbacks as cb, constants::*, utils::BitSliceExt};
 use bitvec::prelude::*;
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
@@ -135,6 +135,9 @@ pub fn tick() {
     let (prefix, stem) = instr_bits.split_at(4);
 
     match prefix.load::<u8>() {
+        // 0nnn - Jump to a machine code routine at nnn
+        // 00E0 - Clear the display
+        // 00EE - Return from a subroutine
         0x0 => match stem.load_be::<u16>() {
             // Clear the display
             0x0E0 => {
@@ -188,8 +191,7 @@ pub fn tick() {
 
         // 5xy0 - Skip next instruction if Vx = Vy
         0x5 => {
-            let (x, rest) = stem.split_at(4);
-            let (y, suffix) = rest.split_at(4);
+            let (x, y, suffix) = stem.split_at_two(4, 8);
 
             if suffix.load::<u8>() != 0 {
                 cb::log_error(format!(
