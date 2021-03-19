@@ -1,9 +1,9 @@
-use crate::{constants::*, core::state};
+use crate::constants::*;
 use libretro_defs as lr;
 use once_cell::sync::Lazy;
 use std::{
     ffi,
-    mem::MaybeUninit,
+    mem::{size_of, MaybeUninit},
     os::raw::{c_uint, c_void},
     sync::Mutex,
 };
@@ -130,18 +130,17 @@ pub fn log_error<S: AsRef<str>>(message: S) {
     log(lr::retro_log_level::RETRO_LOG_ERROR, message.as_ref());
 }
 
-pub fn video_refresh(buffer: &state::ChipScreen) {
-    // Note: ChipScreen must be repr(transparent)
+pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
     let func = VIDEO_REFRESH
         .lock()
         .unwrap()
         .expect("VIDEO_REFRESH callback not initialized");
     unsafe {
         func(
-            buffer as *const _ as *const c_void,
+            buffer.as_ref() as *const _ as *const c_void,
             SCREEN_WIDTH as c_uint,
             SCREEN_HEIGHT as c_uint,
-            (SCREEN_WIDTH * 2) as lr::size_t,
+            (SCREEN_WIDTH * size_of::<u16>()) as lr::size_t,
         );
     }
 }

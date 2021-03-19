@@ -65,11 +65,11 @@ pub enum PixelState {
 
 // This must be repr(transparent) because it will be sent as a ptr over C FFI
 #[repr(transparent)]
-pub struct ChipScreen([PixelState; SCREEN_WIDTH * SCREEN_HEIGHT]);
+pub struct ChipScreen([PixelState; NUM_PIXELS]);
 
 impl Default for ChipScreen {
     fn default() -> Self {
-        Self([PixelState::Black; SCREEN_WIDTH * SCREEN_HEIGHT])
+        Self([PixelState::Black; NUM_PIXELS])
     }
 }
 
@@ -84,6 +84,13 @@ impl Deref for ChipScreen {
 impl DerefMut for ChipScreen {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl AsRef<[u16; NUM_PIXELS]> for ChipScreen {
+    fn as_ref(&self) -> &[u16; NUM_PIXELS] {
+        static_assertions::assert_eq_size!(PixelState, u16);
+        unsafe { &*(&self.0 as *const [PixelState; NUM_PIXELS] as *const [u16; NUM_PIXELS]) }
     }
 }
 

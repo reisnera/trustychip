@@ -39,6 +39,9 @@ mod constants {
     /// Screen height
     pub const SCREEN_HEIGHT: usize = 32;
 
+    /// Number of pixels
+    pub const NUM_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
+
     /// Video frame rate
     pub const FRAME_RATE: f64 = 30.0;
 
