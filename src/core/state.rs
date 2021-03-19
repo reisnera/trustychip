@@ -123,6 +123,21 @@ pub fn deinit() {
 }
 
 /// Executes one Chip-8 instruction and updates the state appropriately.
+///
+/// One challenge of writing this emulator is the difference between the original Chip-8 and
+/// subsequent modifications (e.g. Chip-48). This emulator/interpreter will try to stay true to
+/// the original Chip-8 instructions.
+///
+/// Big thanks to the following sites for refence information:
+///
+/// <http://mattmik.com/files/chip8/mastering/chip8.html>\
+/// <https://github.com/mattmikolay/chip-8/wiki>\
+/// These appear to be accurate documentation on the original Chip-8 instruction set.
+///
+/// <http://devernay.free.fr/hacks/chip8/C8TECH10.HTM>\
+/// A helpful straightforward overview of Chip-8, though there are multiple subtle instruction
+/// differences that are actually from subsequent modifications of the Chip-8 interpreter. So
+/// I would not rely too much on the instruction reference there.
 pub fn tick() {
     let mut guard = CHIP_STATE.lock().unwrap();
     let state = guard.as_deref_mut().expect("CHIP_STATE not initialized");
@@ -135,16 +150,13 @@ pub fn tick() {
     let (prefix, stem) = instr_bits.split_at(4);
 
     match prefix.load::<u8>() {
-        // 0nnn - Jump to a machine code routine at nnn
-        // 00E0 - Clear the display
-        // 00EE - Return from a subroutine
         0x0 => match stem.load_be::<u16>() {
-            // Clear the display
+            // 00E0 - Clear the display
             0x0E0 => {
                 state.screen = Default::default();
                 todo!("0x00E0 clear display");
             }
-            // Return from a subroutine
+            // 00EE - Return from a subroutine
             0x0EE => {
                 state.pc = state.stack.pop().unwrap_or_else(|| {
                     cb::log_error("tick: cannot pop from empty Chip8 stack");
@@ -152,7 +164,7 @@ pub fn tick() {
                 });
                 preserve_pc = true;
             }
-            // Unused: jump to a machine code address
+            // 0nnn - Jump to a machine code routine at nnn. Unused.
             _ => cb::log_info("tick: ignored instruction to jump to machine code address"),
         },
 
@@ -220,6 +232,67 @@ pub fn tick() {
             let (x, kk) = stem.split_at(4);
             let x: usize = x.load_be();
             state.v[x] = state.v[x].wrapping_add(kk.load_be());
+        }
+
+        // 8xy* instructions
+        0x8 => {
+            let (x, y, suffix) = stem.split_at_two(4, 8);
+            let x: usize = x.load_be();
+            let y: usize = y.load_be();
+            match suffix.load_be::<u8>() {
+                // 8xy0 - Set Vx = Vy
+                0x0 => state.v[x] = state.v[y],
+
+                // 8xy1 - Set Vx = Vx OR Vy
+                0x1 => state.v[x] |= state.v[y],
+
+                // 8xy2 - Set Vx = Vx AND Vy
+                0x2 => state.v[x] &= state.v[y],
+
+                // 8xy3 - Set Vx = Vx XOR Vy
+                0x3 => state.v[x] ^= state.v[y],
+
+                // 8xy4 - Set Vx = Vx + Vy, set VF = carry
+                0x4 => {
+                    let sum = state.v[x] as u32 + state.v[y] as u32;
+                    state.v[0xF] = (sum > 0xFF) as u8;
+                    state.v[x] = sum as u8;
+                }
+
+                // 8xy5 - Set Vx = Vx - Vy, set VF = NOT borrow
+                0x5 => {
+                    let borrow = state.v[y] > state.v[x];
+                    state.v[0xF] = !borrow as u8;
+                    state.v[x] = state.v[x].wrapping_sub(state.v[y]);
+                }
+
+                // 8xy6 - Set Vx = Vy >> 1, set VF to least sig bit before shift
+                0x6 => {
+                    state.v[0xF] = state.v[y] & 1;
+                    state.v[x] = state.v[y] >> 1;
+                }
+
+                // 8xy7 - Set Vx = Vy - Vx, set VF = NOT borrow
+                0x7 => {
+                    let borrow = state.v[x] > state.v[y];
+                    state.v[0xF] = !borrow as u8;
+                    state.v[x] = state.v[y].wrapping_sub(state.v[x]);
+                }
+
+                // 8xyE - Set Vx = Vy << 1, set VF to most sig bit before shift
+                0xE => {
+                    state.v[0xF] = state.v[y] >> 7;
+                    state.v[x] = state.v[y] << 1;
+                }
+
+                _ => {
+                    cb::log_error(format!(
+                        "tick: invalid instruction {:x?}",
+                        instr_bits.load_be::<u16>()
+                    ));
+                    panic!();
+                }
+            }
         }
 
         _ => {
