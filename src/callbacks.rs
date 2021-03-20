@@ -93,6 +93,19 @@ pub fn env_set_pixel_format(pixel_format: lr::retro_pixel_format::Type) {
     }
 }
 
+/// Instruct the frontend to shutdown.
+///
+/// This is useful to more gracefully shutdown everything in case of an unrecoverable error.
+/// Note: this function must not return as indicated by the ! in return type position. The
+/// infinite loop at the end of this function is just to ensure that this is the case to prevent
+/// any UB.
+pub fn env_shutdown() -> ! {
+    unsafe {
+        env_raw::<c_void>(lr::RETRO_ENVIRONMENT_SHUTDOWN, std::ptr::null_mut()).unwrap();
+    }
+    loop {}
+}
+
 pub fn init_log_interface() {
     let wrapper: lr::retro_log_callback = unsafe {
         env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)

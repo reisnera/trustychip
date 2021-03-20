@@ -31,6 +31,11 @@ pub fn run() {
         cb::audio_sample(0, 0);
     }
 
+    // Will arbitrarily tick at 300 Hz for now; need to calculate cycles/frame here
+    for _ in 1..(300.0 / FRAME_RATE) as u32 {
+        state::tick();
+    }
+
     state::with(|emustate| {
         cb::video_refresh(&emustate.screen);
     });

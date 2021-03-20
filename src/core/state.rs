@@ -18,7 +18,7 @@ pub struct ChipState {
     pub dt: Register8,
     pub st: Register8,
     pub sp: Register8,
-    pub i: Register16,
+    pub i: u16,
     pub pc: usize,
 }
 
@@ -32,7 +32,6 @@ impl ChipState {
 }
 
 type Register8 = BitArray<Lsb0, u8>;
-type Register16 = BitArray<Lsb0, u16>;
 
 pub struct ChipMem([u8; TOTAL_MEMORY]);
 
@@ -213,11 +212,7 @@ pub fn tick() {
             let (x, y, suffix) = stem.split_at_two(4, 8);
 
             if suffix.load::<u8>() != 0 {
-                cb::log_error(format!(
-                    "tick: invalid instruction {:x?}",
-                    instr_bits.load_be::<u16>()
-                ));
-                panic!();
+                invalid_instruction_shutdown(instr_bits);
             }
 
             let x: usize = x.load_be();
@@ -293,13 +288,45 @@ pub fn tick() {
                 }
 
                 _ => {
-                    cb::log_error(format!(
-                        "tick: invalid instruction {:x?}",
-                        instr_bits.load_be::<u16>()
-                    ));
-                    panic!();
+                    invalid_instruction_shutdown(instr_bits);
                 }
             }
+        }
+
+        // 9xy0 - Skip next instruction if Vx != Vy
+        0x9 => {
+            let (x, y, suffix) = stem.split_at_two(4, 8);
+
+            if suffix.load::<u8>() != 0 {
+                invalid_instruction_shutdown(instr_bits);
+            }
+
+            let x: usize = x.load_be();
+            let y: usize = y.load_be();
+            if state.v[x] != state.v[y] {
+                state.pc += 2;
+            }
+        }
+
+        // Annn - Set I = nnn
+        0xA => state.i = stem.load_be(),
+
+        // Bnnn - Jump to location V0 + nnn
+        0xB => {
+            state.pc = state.v[0] as usize + stem.load_be::<usize>();
+            preserve_pc = true;
+        }
+
+        // Cxkk - Set Vx = random byte AND kk
+        0xC => {
+            use rand::{thread_rng, Rng};
+            let mut rng = thread_rng();
+
+            let (x, kk) = stem.split_at(4);
+            let x: usize = x.load_be();
+            let kk: u8 = kk.load_be();
+
+            state.v[x] = rng.gen::<u8>() & kk;
         }
 
         _ => {
@@ -314,4 +341,18 @@ pub fn tick() {
     if preserve_pc == false {
         state.pc += 2;
     }
+}
+
+/// Log an invalid instruction and then shutdown the frontend.
+///
+/// Note: this function must never return!
+fn invalid_instruction_shutdown<T>(instr_bits: &T) -> !
+where
+    T: ?Sized + bitvec::field::BitField,
+{
+    cb::log_error(format!(
+        "tick: invalid instruction {:x?}",
+        instr_bits.load_be::<u16>()
+    ));
+    cb::env_shutdown();
 }
