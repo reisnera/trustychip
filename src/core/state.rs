@@ -55,16 +55,86 @@ impl DerefMut for ChipMem {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(u16)]
 pub enum PixelState {
     Black = 0,
-    _White = 0xFFFF,
+    White = 0xFFFF,
 }
 
-// This must be repr(transparent) because it will be sent as a ptr over C FFI
-#[repr(transparent)]
+impl PixelState {
+    fn xor(&self, other: PixelState) -> PixelState {
+        (bool::from(*self) ^ bool::from(other)).into()
+    }
+
+    fn xor_mut_and_did_unset(&mut self, other: PixelState) -> bool {
+        let result = self.xor(other);
+        let did_unset = *self == PixelState::White && result == PixelState::Black;
+        *self = result;
+        did_unset
+    }
+}
+
+impl From<bool> for PixelState {
+    fn from(b: bool) -> Self {
+        match b {
+            true => PixelState::White,
+            false => PixelState::Black,
+        }
+    }
+}
+
+impl From<PixelState> for bool {
+    fn from(p: PixelState) -> Self {
+        match p {
+            PixelState::Black => false,
+            PixelState::White => true,
+        }
+    }
+}
+
 pub struct ChipScreen([PixelState; NUM_PIXELS]);
+
+impl ChipScreen {
+    /// Loads a sprite into the screen buffer.
+    ///
+    /// This function renders a sprite into the screen buffer with its upper left pixel at the
+    /// specified location. Sprites are rendered over the existing screen buffer using XOR.
+    /// Each byte in sprite_data represents one 8-pixel-wide row, up to a max of 15 rows.
+    /// Sprites are always 8 pixels wide.
+    ///
+    /// See [here](https://github.com/mattmikolay/chip-8/wiki/CHIP%E2%80%908-Technical-Reference)
+    /// for more information.
+    ///
+    /// This function returns true if any set pixels are changed to unset.
+    fn render_sprite(&mut self, sprite_data: &[u8], x_pos: u8, y_pos: u8) -> bool {
+        assert!(
+            sprite_data.len() <= 15,
+            "invalid sprite size: {}",
+            sprite_data.len()
+        );
+
+        // Ensure top left coordinate will wrap modulo screen dimensions:
+        let x_pos = x_pos as usize % SCREEN_WIDTH;
+        let y_pos = y_pos as usize % SCREEN_HEIGHT;
+
+        let cols_used = SCREEN_WIDTH - x_pos;
+        let rows_used = SCREEN_HEIGHT - y_pos;
+
+        let mut flag = false;
+        for (row_num, row_bits) in sprite_data[..rows_used]
+            .view_bits::<Msb0>()
+            .chunks_exact(8)
+            .enumerate()
+        {
+            for col_num in 0..cols_used {
+                let index = (y_pos + row_num) * SCREEN_WIDTH + x_pos + col_num;
+                flag |= self[index].xor_mut_and_did_unset(row_bits[col_num].into());
+            }
+        }
+        flag
+    }
+}
 
 impl Default for ChipScreen {
     fn default() -> Self {
@@ -160,7 +230,6 @@ pub fn tick() {
             // 00E0 - Clear the display
             0x0E0 => {
                 state.screen = Default::default();
-                todo!("0x00E0 clear display");
             }
             // 00EE - Return from a subroutine
             0x0EE => {
@@ -327,6 +396,23 @@ pub fn tick() {
             let kk: u8 = kk.load_be();
 
             state.v[x] = rng.gen::<u8>() & kk;
+        }
+
+        // Dxyn - Draw a sprite at position Vx, Vy with n bytes of sprite data starting at the
+        // address stored in I. Set VF to 01 if any set pixels are unset, and 00 otherwise.
+        0xD => {
+            let (x, y, n) = stem.split_at_two(4, 8);
+            let x_pos = state.v[x.load_be::<usize>()];
+            let y_pos = state.v[y.load_be::<usize>()];
+            let n: usize = n.load_be();
+            let sprite_addr = state.i as usize;
+            assert!(
+                sprite_addr + n - 1 < TOTAL_MEMORY,
+                "tick: invalid Chip-8 memory address in instruction {:x?}",
+                instr_bits.load_be::<u16>(),
+            );
+            let sprite_data = &state.mem[sprite_addr..sprite_addr + n];
+            state.v[0xF] = state.screen.render_sprite(sprite_data, x_pos, y_pos) as u8;
         }
 
         _ => {
