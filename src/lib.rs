@@ -24,14 +24,20 @@ mod core;
 
 /// Emulator-wide constants
 mod constants {
+    use static_assertions::const_assert;
+
     /// Total Chip-8 memory available
     pub const TOTAL_MEMORY: usize = 0x1000;
 
-    /// Address in Chip-8 memory at which games are loaded
-    pub const LOAD_ADDRESS: usize = 0x200;
+    /// Address in Chip-8 memory at which hex font data is loaded. This is basically arbitrary
+    /// but should be sufficiently below GAME_ADDRESS.
+    pub const FONT_ADDRESS: usize = 0x100;
 
-    /// Maximum size of Chip-8 game (calculated from [TOTAL_MEMORY] and [LOAD_ADDRESS])
-    pub const MAX_GAME_SIZE: usize = TOTAL_MEMORY - LOAD_ADDRESS;
+    /// Address in Chip-8 memory at which games are loaded
+    pub const GAME_ADDRESS: usize = 0x200;
+
+    /// Maximum size of Chip-8 game (calculated from [TOTAL_MEMORY] and [GAME_ADDRESS])
+    pub const MAX_GAME_SIZE: usize = TOTAL_MEMORY - GAME_ADDRESS;
 
     /// Screen width
     pub const SCREEN_WIDTH: usize = 64;
@@ -43,13 +49,21 @@ mod constants {
     pub const NUM_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
     /// Video frame rate
-    pub const FRAME_RATE: f64 = 30.0;
+    pub const FRAME_RATE: usize = 30;
 
     /// Audio samples per second
-    pub const AUDIO_SAMPLE_RATE: f64 = 44100.0;
+    pub const AUDIO_SAMPLE_RATE: usize = 44100;
+
+    /// Chip-8 timer cycle rate (this is always 60 Hz)
+    pub const TIMER_CYCLE_RATE: usize = 60;
 
     /// Audio samples per frame (calculated from [AUDIO_SAMPLE_RATE] and [FRAME_RATE])
-    pub const AUDIO_SAMPLES_PER_FRAME: usize = (AUDIO_SAMPLE_RATE / FRAME_RATE) as usize;
+    pub const AUDIO_SAMPLES_PER_FRAME: usize = AUDIO_SAMPLE_RATE / FRAME_RATE;
+    const_assert!(AUDIO_SAMPLE_RATE % FRAME_RATE == 0);
+
+    /// Chip-8 timer cycles per frame
+    pub const TIMER_CYCLES_PER_FRAME: usize = TIMER_CYCLE_RATE / FRAME_RATE;
+    const_assert!(TIMER_CYCLE_RATE % FRAME_RATE == 0);
 }
 
 use self::{callbacks as cb, constants::*};
@@ -104,8 +118,8 @@ pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) 
     assert!(!dest.is_null());
     let av_info = lr::retro_system_av_info {
         timing: lr::retro_system_timing {
-            fps: FRAME_RATE,
-            sample_rate: AUDIO_SAMPLE_RATE,
+            fps: FRAME_RATE as f64,
+            sample_rate: AUDIO_SAMPLE_RATE as f64,
         },
         geometry: lr::retro_game_geometry {
             base_width: SCREEN_WIDTH as c_uint,
@@ -264,7 +278,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uin
 /// Resets the current game.
 #[no_mangle]
 pub extern "C" fn retro_reset() {
-    todo!();
+    cb::log_warn("retro_reset not implemented");
 }
 
 /// Runs the game for one video frame.

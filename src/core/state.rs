@@ -3,11 +3,33 @@ use bitvec::prelude::*;
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 use std::{
+    cmp, mem,
     ops::{Deref, DerefMut},
     sync::Mutex,
 };
 
 static CHIP_STATE: Lazy<Mutex<Option<Box<ChipState>>>> = Lazy::new(|| Mutex::new(None));
+
+type DigitSprite = [u8; 5];
+type FontStore = [DigitSprite; 16];
+const FONT_DATA: FontStore = [
+    [0xF0, 0x90, 0x90, 0x90, 0xF0], // Digit 0
+    [0x20, 0x60, 0x20, 0x20, 0x70], // Digit 1
+    [0xF0, 0x10, 0xF0, 0x80, 0xF0], // Digit 2
+    [0xF0, 0x10, 0xF0, 0x10, 0xF0], // Digit 3
+    [0x90, 0x90, 0xF0, 0x10, 0x10], // Digit 4
+    [0xF0, 0x80, 0xF0, 0x10, 0xF0], // Digit 5
+    [0xF0, 0x80, 0xF0, 0x90, 0xF0], // Digit 6
+    [0xF0, 0x10, 0x20, 0x40, 0x40], // Digit 7
+    [0xF0, 0x90, 0xF0, 0x90, 0xF0], // Digit 8
+    [0xF0, 0x90, 0xF0, 0x10, 0xF0], // Digit 9
+    [0xF0, 0x90, 0xF0, 0x90, 0x90], // Digit A
+    [0xE0, 0x90, 0xE0, 0x90, 0xE0], // Digit B
+    [0xF0, 0x80, 0x80, 0x80, 0xF0], // Digit C
+    [0xE0, 0x90, 0x90, 0x90, 0xE0], // Digit D
+    [0xF0, 0x80, 0xF0, 0x80, 0xF0], // Digit E
+    [0xF0, 0x80, 0xF0, 0x80, 0x80], // Digit F
+];
 
 #[derive(Default)]
 pub struct ChipState {
@@ -15,9 +37,8 @@ pub struct ChipState {
     pub screen: ChipScreen,
     pub stack: SmallVec<[usize; 16]>,
     pub v: [u8; 16],
-    pub dt: Register8,
-    pub st: Register8,
-    pub sp: Register8,
+    pub dt: u8,
+    pub st: u8,
     pub i: u16,
     pub pc: usize,
 }
@@ -25,13 +46,11 @@ pub struct ChipState {
 impl ChipState {
     fn new() -> Self {
         Self {
-            pc: LOAD_ADDRESS,
+            pc: GAME_ADDRESS,
             ..Default::default()
         }
     }
 }
-
-type Register8 = BitArray<Lsb0, u8>;
 
 pub struct ChipMem([u8; TOTAL_MEMORY]);
 
@@ -108,18 +127,15 @@ impl ChipScreen {
     ///
     /// This function returns true if any set pixels are changed to unset.
     fn render_sprite(&mut self, sprite_data: &[u8], x_pos: u8, y_pos: u8) -> bool {
-        assert!(
-            sprite_data.len() <= 15,
-            "invalid sprite size: {}",
-            sprite_data.len()
-        );
+        let n_bytes = sprite_data.len();
+        assert!(n_bytes <= 15, "invalid sprite size: {}", n_bytes);
 
         // Ensure top left coordinate will wrap modulo screen dimensions:
         let x_pos = x_pos as usize % SCREEN_WIDTH;
         let y_pos = y_pos as usize % SCREEN_HEIGHT;
 
-        let cols_used = SCREEN_WIDTH - x_pos;
-        let rows_used = SCREEN_HEIGHT - y_pos;
+        let cols_used = cmp::min(SCREEN_WIDTH - x_pos, 8);
+        let rows_used = cmp::min(SCREEN_HEIGHT - y_pos, n_bytes);
 
         let mut flag = false;
         for (row_num, row_bits) in sprite_data[..rows_used]
@@ -187,9 +203,20 @@ where
 
 pub fn init() {
     cb::log_info("initializing core state");
+    let mut state = Box::new(ChipState::new());
+
+    // Make sure hex font data won't overlap with where the game will be loaded
+    const FONT_SIZE: usize = mem::size_of::<FontStore>();
+    static_assertions::const_assert!(FONT_ADDRESS + FONT_SIZE <= GAME_ADDRESS);
+
+    // Copy hex font data into Chip-8 memory
+    let font_bytes: &[u8] =
+        unsafe { std::slice::from_raw_parts(FONT_DATA.as_ptr() as *const u8, FONT_SIZE) };
+    state.mem[FONT_ADDRESS..FONT_ADDRESS + FONT_SIZE].copy_from_slice(font_bytes);
+
+    // Put the new state into the global variable
     let mut guard = CHIP_STATE.lock().unwrap();
-    *guard = Some(Box::new(ChipState::new()));
-    // TODO: initialize font data below 0x200?
+    *guard = Some(state);
 }
 
 pub fn deinit() {
@@ -415,13 +442,95 @@ pub fn tick() {
             state.v[0xF] = state.screen.render_sprite(sprite_data, x_pos, y_pos) as u8;
         }
 
-        _ => {
-            cb::log_error(format!(
-                "tick: instruction {:x?} not yet implemented",
-                instr_bits.load_be::<u16>()
-            ));
-            todo!();
+        // Ex9E and ExA1 (see comments below)
+        0xE => {
+            let (x, suffix) = stem.split_at(4);
+            let _key = state.v[x.load_be::<usize>()];
+
+            match suffix.load_be::<u8>() {
+                // Ex9E - Skip the next instruction if the key corresponding to the hex
+                // value in register VX is pressed
+                0x9E => {
+                    // TODO: implement this
+                }
+
+                // ExA1 - Skip the next instruction if the key corresponding to the hex
+                // value in register VX is NOT pressed
+                0xA1 => {
+                    // TODO: implement this
+                    state.pc += 2;
+                }
+
+                _ => invalid_instruction_shutdown(instr_bits),
+            }
         }
+
+        // Fx instructions
+        0xF => {
+            let (x, suffix) = stem.split_at(4);
+            let x = x.load_be::<usize>();
+
+            match suffix.load_be::<u8>() {
+                // Fx07 - Set Vx = delay timer value
+                0x07 => state.v[x] = state.dt,
+
+                // Fx0A - Wait for a key press, store the value of the key in Vx
+                0x0A => {
+                    // TODO - HOW OMG?!
+                    state.v[x] = 0; // Just arbitrarily store a 0 press for now
+                }
+
+                // Fx15 - Set delay timer = Vx
+                0x15 => state.dt = state.v[x],
+
+                // Fx18 - Set sound timer = Vx
+                0x18 => state.st = state.v[x],
+
+                // Fx1E - Set I = I + Vx
+                0x1E => state.i += state.v[x] as u16,
+
+                // Fx29 - Set I = location of sprite for digit Vx
+                0x29 => {
+                    // modulo 16 so that if digit over 0xF is requested, it'll just wrap
+                    let digit_offset = (state.v[x] % 16) as u16;
+                    state.i = FONT_ADDRESS as u16 + digit_offset;
+                }
+
+                // Fx33 - Store the BCD equivalent of Vx at addresses I, I + 1, and I + 2
+                0x33 => {
+                    let ones = state.v[x] % 10;
+                    let tens = (state.v[x] / 10) % 10;
+                    let hundreds = state.v[x] / 100; // This is sufficient, max Vx is 255
+
+                    let dst = &mut state.mem[state.i as usize..state.i as usize + 3];
+                    dst[0] = hundreds;
+                    dst[1] = tens;
+                    dst[2] = ones;
+                }
+
+                // Fx55 - Store V0 to Vx inclusive in memory starting at address I.
+                // I is set to I + X + 1 after operation.
+                0x55 => {
+                    let dst = &mut state.mem[state.i as usize..state.i as usize + x + 1];
+                    let src = &state.v[..x + 1];
+                    dst.copy_from_slice(src);
+                    state.i += x as u16 + 1;
+                }
+
+                // Fx65 - Fill V0 to Vx inclusive with the memory starting at address I.
+                // I is set to I + X + 1 after operation.
+                0x65 => {
+                    let dst = &mut state.v[..x + 1];
+                    let src = &state.mem[state.i as usize..state.i as usize + x + 1];
+                    dst.copy_from_slice(src);
+                    state.i += x as u16 + 1;
+                }
+
+                _ => invalid_instruction_shutdown(instr_bits),
+            }
+        }
+
+        _ => unreachable!("tick: instruction prefix above 0xF should be impossible"),
     }
 
     if preserve_pc == false {

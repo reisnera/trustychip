@@ -134,7 +134,7 @@ pub fn log_info<S: AsRef<str>>(message: S) {
 }
 
 #[inline]
-pub fn _log_warn<S: AsRef<str>>(message: S) {
+pub fn log_warn<S: AsRef<str>>(message: S) {
     log(lr::retro_log_level::RETRO_LOG_WARN, message.as_ref());
 }
 
