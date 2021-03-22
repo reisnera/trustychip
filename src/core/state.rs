@@ -315,8 +315,9 @@ impl ChipState {
                     // Fx29 - Set I = location of sprite for digit Vx
                     0x29 => {
                         // modulo 16 so that if digit over 0xF is requested, it'll just wrap
-                        let digit_offset = (self.v[x] % 16) as u16;
-                        self.i = FONT_ADDRESS as u16 + digit_offset;
+                        let digit = (self.v[x] % 16) as u16;
+                        let offset = digit * mem::size_of::<DigitSprite>() as u16;
+                        self.i = FONT_ADDRESS as u16 + offset;
                     }
 
                     // Fx33 - Store the BCD equivalent of Vx at addresses I, I + 1, and I + 2
