@@ -185,6 +185,7 @@ pub extern "C" fn retro_load_game_special(
 ///
 /// # Timing
 /// Guaranteed to be called before `retro_init` (however can apparently ALSO be called after).
+/// Can be called multiple times.
 #[no_mangle]
 pub extern "C" fn retro_set_environment(funcptr: lr::retro_environment_t) {
     cb::init_environment_cb(funcptr);
