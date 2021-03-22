@@ -71,14 +71,7 @@ unsafe fn env_raw<T>(cmd: c_uint, data: *mut T) -> Result<(), ()> {
     }
 }
 
-// SAFETY: Caller needs to ensure that `data` is the appropriate structure/size
-// for `cmd`.
-unsafe fn env_set<T: Copy>(cmd: c_uint, data: T) -> Result<(), ()> {
-    let mut local = data;
-    env_raw(cmd, &mut local)
-}
-
-// SAFETY: Caller needs to ensure that the returned type T is the appropriate
+// SAFETY: Caller needs to ensure that the return type T is the appropriate
 // type associated with `cmd`.
 unsafe fn env_get<T>(cmd: c_uint) -> Result<T, ()> {
     let mut wrapper = MaybeUninit::uninit();
@@ -86,9 +79,9 @@ unsafe fn env_get<T>(cmd: c_uint) -> Result<T, ()> {
     Ok(wrapper.assume_init())
 }
 
-pub fn env_set_pixel_format(pixel_format: lr::retro_pixel_format::Type) {
+pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format::Type) {
     unsafe {
-        env_set(lr::RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, pixel_format)
+        env_raw(lr::RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &mut pixel_format)
             .expect("unable to set pixel format");
     }
 }
