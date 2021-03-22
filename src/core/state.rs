@@ -210,9 +210,8 @@ pub fn init() {
     static_assertions::const_assert!(FONT_ADDRESS + FONT_SIZE <= GAME_ADDRESS);
 
     // Copy hex font data into Chip-8 memory
-    let font_bytes: &[u8] =
-        unsafe { std::slice::from_raw_parts(FONT_DATA.as_ptr() as *const u8, FONT_SIZE) };
-    state.mem[FONT_ADDRESS..FONT_ADDRESS + FONT_SIZE].copy_from_slice(font_bytes);
+    let font_bytes: Vec<u8> = FONT_DATA.iter().flatten().copied().collect();
+    state.mem[FONT_ADDRESS..FONT_ADDRESS + FONT_SIZE].copy_from_slice(font_bytes.as_slice());
 
     // Put the new state into the global variable
     let mut guard = CHIP_STATE.lock().unwrap();
