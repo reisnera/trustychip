@@ -50,6 +50,316 @@ impl ChipState {
             ..Default::default()
         }
     }
+
+    /// Executes one Chip-8 instruction and updates the state appropriately.
+    ///
+    /// One challenge of writing this emulator is the difference between the original Chip-8 and
+    /// subsequent modifications (e.g. Chip-48). This emulator/interpreter will try to stay true to
+    /// the original Chip-8 instructions.
+    ///
+    /// Big thanks to the following sites for refence information:
+    ///
+    /// <http://mattmik.com/files/chip8/mastering/chip8.html>\
+    /// <https://github.com/mattmikolay/chip-8/wiki>\
+    /// These appear to be accurate documentation on the original Chip-8 instruction set.
+    ///
+    /// <http://devernay.free.fr/hacks/chip8/C8TECH10.HTM>\
+    /// A helpful straightforward overview of Chip-8, though there are multiple subtle instruction
+    /// differences that are actually from subsequent modifications of the Chip-8 interpreter. So
+    /// I would not rely too much on the instruction reference there.
+    pub fn tick(&mut self) {
+        // If this flag is set, the program counter (pc) will not be incremented at the end
+        // of this function (important for returns, jumps, etc.)
+        let mut preserve_pc = false;
+
+        let instr_bits = self.mem[self.pc..self.pc + 2].view_bits::<Msb0>();
+        let (prefix, stem) = instr_bits.split_at(4);
+
+        match prefix.load::<u8>() {
+            0x0 => match stem.load_be::<u16>() {
+                // 00E0 - Clear the display
+                0x0E0 => {
+                    self.screen = Default::default();
+                }
+                // 00EE - Return from a subroutine
+                0x0EE => {
+                    self.pc = self.stack.pop().unwrap_or_else(|| {
+                        cb::log_error("tick: cannot pop from empty Chip8 stack");
+                        panic!();
+                    });
+                    preserve_pc = true;
+                }
+                // 0nnn - Jump to a machine code routine at nnn. Unused.
+                _ => cb::log_info("tick: ignored instruction to jump to machine code address"),
+            },
+
+            // 1nnn - Jump to location
+            0x1 => {
+                self.pc = stem.load_be();
+                preserve_pc = true;
+            }
+
+            // 2nnn - Call a subroutine
+            0x2 => {
+                self.stack.push(self.pc + 2);
+                self.pc = stem.load_be();
+                preserve_pc = true;
+            }
+
+            // 3xkk - Skip next instruction if Vx = kk
+            0x3 => {
+                let (x, kk) = stem.split_at(4);
+                let x: usize = x.load_be();
+                let kk: u8 = kk.load_be();
+                if self.v[x] == kk {
+                    self.pc += 2;
+                }
+            }
+
+            // 4xkk - Skip next instruction if Vx != kk
+            0x4 => {
+                let (x, kk) = stem.split_at(4);
+                let x: usize = x.load_be();
+                let kk: u8 = kk.load_be();
+                if self.v[x] != kk {
+                    self.pc += 2;
+                }
+            }
+
+            // 5xy0 - Skip next instruction if Vx = Vy
+            0x5 => {
+                let (x, y, suffix) = stem.split_at_two(4, 8);
+
+                if suffix.load::<u8>() != 0 {
+                    invalid_instruction_shutdown(instr_bits);
+                }
+
+                let x: usize = x.load_be();
+                let y: usize = y.load_be();
+                if self.v[x] == self.v[y] {
+                    self.pc += 2;
+                }
+            }
+
+            // 6xkk - Set Vx = kk
+            0x6 => {
+                let (x, kk) = stem.split_at(4);
+                let x: usize = x.load_be();
+                self.v[x] = kk.load_be();
+            }
+
+            // 7xkk - Set Vx = Vx + kk
+            0x7 => {
+                let (x, kk) = stem.split_at(4);
+                let x: usize = x.load_be();
+                self.v[x] = self.v[x].wrapping_add(kk.load_be());
+            }
+
+            // 8xy* instructions
+            0x8 => {
+                let (x, y, suffix) = stem.split_at_two(4, 8);
+                let x: usize = x.load_be();
+                let y: usize = y.load_be();
+                match suffix.load_be::<u8>() {
+                    // 8xy0 - Set Vx = Vy
+                    0x0 => self.v[x] = self.v[y],
+
+                    // 8xy1 - Set Vx = Vx OR Vy
+                    0x1 => self.v[x] |= self.v[y],
+
+                    // 8xy2 - Set Vx = Vx AND Vy
+                    0x2 => self.v[x] &= self.v[y],
+
+                    // 8xy3 - Set Vx = Vx XOR Vy
+                    0x3 => self.v[x] ^= self.v[y],
+
+                    // 8xy4 - Set Vx = Vx + Vy, set VF = carry
+                    0x4 => {
+                        let sum = self.v[x] as u32 + self.v[y] as u32;
+                        self.v[0xF] = (sum > 0xFF) as u8;
+                        self.v[x] = sum as u8;
+                    }
+
+                    // 8xy5 - Set Vx = Vx - Vy, set VF = NOT borrow
+                    0x5 => {
+                        let borrow = self.v[y] > self.v[x];
+                        self.v[0xF] = !borrow as u8;
+                        self.v[x] = self.v[x].wrapping_sub(self.v[y]);
+                    }
+
+                    // 8xy6 - Set Vx = Vy >> 1, set VF to least sig bit before shift
+                    0x6 => {
+                        self.v[0xF] = self.v[y] & 1;
+                        self.v[x] = self.v[y] >> 1;
+                    }
+
+                    // 8xy7 - Set Vx = Vy - Vx, set VF = NOT borrow
+                    0x7 => {
+                        let borrow = self.v[x] > self.v[y];
+                        self.v[0xF] = !borrow as u8;
+                        self.v[x] = self.v[y].wrapping_sub(self.v[x]);
+                    }
+
+                    // 8xyE - Set Vx = Vy << 1, set VF to most sig bit before shift
+                    0xE => {
+                        self.v[0xF] = self.v[y] >> 7;
+                        self.v[x] = self.v[y] << 1;
+                    }
+
+                    _ => {
+                        invalid_instruction_shutdown(instr_bits);
+                    }
+                }
+            }
+
+            // 9xy0 - Skip next instruction if Vx != Vy
+            0x9 => {
+                let (x, y, suffix) = stem.split_at_two(4, 8);
+
+                if suffix.load::<u8>() != 0 {
+                    invalid_instruction_shutdown(instr_bits);
+                }
+
+                let x: usize = x.load_be();
+                let y: usize = y.load_be();
+                if self.v[x] != self.v[y] {
+                    self.pc += 2;
+                }
+            }
+
+            // Annn - Set I = nnn
+            0xA => self.i = stem.load_be(),
+
+            // Bnnn - Jump to location V0 + nnn
+            0xB => {
+                self.pc = self.v[0] as usize + stem.load_be::<usize>();
+                preserve_pc = true;
+            }
+
+            // Cxkk - Set Vx = random byte AND kk
+            0xC => {
+                use rand::{thread_rng, Rng};
+                let mut rng = thread_rng();
+
+                let (x, kk) = stem.split_at(4);
+                let x: usize = x.load_be();
+                let kk: u8 = kk.load_be();
+
+                self.v[x] = rng.gen::<u8>() & kk;
+            }
+
+            // Dxyn - Draw a sprite at position Vx, Vy with n bytes of sprite data starting at the
+            // address stored in I. Set VF to 01 if any set pixels are unset, and 00 otherwise.
+            0xD => {
+                let (x, y, n) = stem.split_at_two(4, 8);
+                let x_pos = self.v[x.load_be::<usize>()];
+                let y_pos = self.v[y.load_be::<usize>()];
+                let n: usize = n.load_be();
+                let sprite_addr = self.i as usize;
+                assert!(
+                    sprite_addr + n - 1 < TOTAL_MEMORY,
+                    "tick: invalid Chip-8 memory address in instruction {:x?}",
+                    instr_bits.load_be::<u16>(),
+                );
+                let sprite_data = &self.mem[sprite_addr..sprite_addr + n];
+                self.v[0xF] = self.screen.render_sprite(sprite_data, x_pos, y_pos) as u8;
+            }
+
+            // Ex9E and ExA1 (see comments below)
+            0xE => {
+                let (x, suffix) = stem.split_at(4);
+                let _key = self.v[x.load_be::<usize>()];
+
+                match suffix.load_be::<u8>() {
+                    // Ex9E - Skip the next instruction if the key corresponding to the hex
+                    // value in register VX is pressed
+                    0x9E => {
+                        // TODO: implement this
+                    }
+
+                    // ExA1 - Skip the next instruction if the key corresponding to the hex
+                    // value in register VX is NOT pressed
+                    0xA1 => {
+                        // TODO: implement this
+                        self.pc += 2;
+                    }
+
+                    _ => invalid_instruction_shutdown(instr_bits),
+                }
+            }
+
+            // Fx instructions
+            0xF => {
+                let (x, suffix) = stem.split_at(4);
+                let x = x.load_be::<usize>();
+
+                match suffix.load_be::<u8>() {
+                    // Fx07 - Set Vx = delay timer value
+                    0x07 => self.v[x] = self.dt,
+
+                    // Fx0A - Wait for a key press, store the value of the key in Vx
+                    0x0A => {
+                        // TODO - HOW OMG?!
+                        self.v[x] = 0; // Just arbitrarily store a 0 press for now
+                    }
+
+                    // Fx15 - Set delay timer = Vx
+                    0x15 => self.dt = self.v[x],
+
+                    // Fx18 - Set sound timer = Vx
+                    0x18 => self.st = self.v[x],
+
+                    // Fx1E - Set I = I + Vx
+                    0x1E => self.i += self.v[x] as u16,
+
+                    // Fx29 - Set I = location of sprite for digit Vx
+                    0x29 => {
+                        // modulo 16 so that if digit over 0xF is requested, it'll just wrap
+                        let digit_offset = (self.v[x] % 16) as u16;
+                        self.i = FONT_ADDRESS as u16 + digit_offset;
+                    }
+
+                    // Fx33 - Store the BCD equivalent of Vx at addresses I, I + 1, and I + 2
+                    0x33 => {
+                        let ones = self.v[x] % 10;
+                        let tens = (self.v[x] / 10) % 10;
+                        let hundreds = self.v[x] / 100; // This is sufficient, max Vx is 255
+
+                        let dst = &mut self.mem[self.i as usize..self.i as usize + 3];
+                        dst[0] = hundreds;
+                        dst[1] = tens;
+                        dst[2] = ones;
+                    }
+
+                    // Fx55 - Store V0 to Vx inclusive in memory starting at address I.
+                    // I is set to I + X + 1 after operation.
+                    0x55 => {
+                        let dst = &mut self.mem[self.i as usize..self.i as usize + x + 1];
+                        let src = &self.v[..x + 1];
+                        dst.copy_from_slice(src);
+                        self.i += x as u16 + 1;
+                    }
+
+                    // Fx65 - Fill V0 to Vx inclusive with the memory starting at address I.
+                    // I is set to I + X + 1 after operation.
+                    0x65 => {
+                        let dst = &mut self.v[..x + 1];
+                        let src = &self.mem[self.i as usize..self.i as usize + x + 1];
+                        dst.copy_from_slice(src);
+                        self.i += x as u16 + 1;
+                    }
+
+                    _ => invalid_instruction_shutdown(instr_bits),
+                }
+            }
+
+            _ => unreachable!("tick: instruction prefix above 0xF should be impossible"),
+        }
+
+        if preserve_pc == false {
+            self.pc += 2;
+        }
+    }
 }
 
 pub struct ChipMem([u8; TOTAL_MEMORY]);
@@ -222,319 +532,6 @@ pub fn deinit() {
     cb::log_info("deinitializing core state");
     let mut guard = CHIP_STATE.lock().unwrap();
     *guard = None;
-}
-
-/// Executes one Chip-8 instruction and updates the state appropriately.
-///
-/// One challenge of writing this emulator is the difference between the original Chip-8 and
-/// subsequent modifications (e.g. Chip-48). This emulator/interpreter will try to stay true to
-/// the original Chip-8 instructions.
-///
-/// Big thanks to the following sites for refence information:
-///
-/// <http://mattmik.com/files/chip8/mastering/chip8.html>\
-/// <https://github.com/mattmikolay/chip-8/wiki>\
-/// These appear to be accurate documentation on the original Chip-8 instruction set.
-///
-/// <http://devernay.free.fr/hacks/chip8/C8TECH10.HTM>\
-/// A helpful straightforward overview of Chip-8, though there are multiple subtle instruction
-/// differences that are actually from subsequent modifications of the Chip-8 interpreter. So
-/// I would not rely too much on the instruction reference there.
-pub fn tick() {
-    let mut guard = CHIP_STATE.lock().unwrap();
-    let state = guard.as_deref_mut().expect("CHIP_STATE not initialized");
-
-    // If this flag is set, the program counter (pc) will not be incremented at the end
-    // of this function (important for returns, jumps, etc.)
-    let mut preserve_pc = false;
-
-    let instr_bits = state.mem[state.pc..state.pc + 2].view_bits::<Msb0>();
-    let (prefix, stem) = instr_bits.split_at(4);
-
-    match prefix.load::<u8>() {
-        0x0 => match stem.load_be::<u16>() {
-            // 00E0 - Clear the display
-            0x0E0 => {
-                state.screen = Default::default();
-            }
-            // 00EE - Return from a subroutine
-            0x0EE => {
-                state.pc = state.stack.pop().unwrap_or_else(|| {
-                    cb::log_error("tick: cannot pop from empty Chip8 stack");
-                    panic!();
-                });
-                preserve_pc = true;
-            }
-            // 0nnn - Jump to a machine code routine at nnn. Unused.
-            _ => cb::log_info("tick: ignored instruction to jump to machine code address"),
-        },
-
-        // 1nnn - Jump to location
-        0x1 => {
-            state.pc = stem.load_be();
-            preserve_pc = true;
-        }
-
-        // 2nnn - Call a subroutine
-        0x2 => {
-            state.stack.push(state.pc + 2);
-            state.pc = stem.load_be();
-            preserve_pc = true;
-        }
-
-        // 3xkk - Skip next instruction if Vx = kk
-        0x3 => {
-            let (x, kk) = stem.split_at(4);
-            let x: usize = x.load_be();
-            let kk: u8 = kk.load_be();
-            if state.v[x] == kk {
-                state.pc += 2;
-            }
-        }
-
-        // 4xkk - Skip next instruction if Vx != kk
-        0x4 => {
-            let (x, kk) = stem.split_at(4);
-            let x: usize = x.load_be();
-            let kk: u8 = kk.load_be();
-            if state.v[x] != kk {
-                state.pc += 2;
-            }
-        }
-
-        // 5xy0 - Skip next instruction if Vx = Vy
-        0x5 => {
-            let (x, y, suffix) = stem.split_at_two(4, 8);
-
-            if suffix.load::<u8>() != 0 {
-                invalid_instruction_shutdown(instr_bits);
-            }
-
-            let x: usize = x.load_be();
-            let y: usize = y.load_be();
-            if state.v[x] == state.v[y] {
-                state.pc += 2;
-            }
-        }
-
-        // 6xkk - Set Vx = kk
-        0x6 => {
-            let (x, kk) = stem.split_at(4);
-            let x: usize = x.load_be();
-            state.v[x] = kk.load_be();
-        }
-
-        // 7xkk - Set Vx = Vx + kk
-        0x7 => {
-            let (x, kk) = stem.split_at(4);
-            let x: usize = x.load_be();
-            state.v[x] = state.v[x].wrapping_add(kk.load_be());
-        }
-
-        // 8xy* instructions
-        0x8 => {
-            let (x, y, suffix) = stem.split_at_two(4, 8);
-            let x: usize = x.load_be();
-            let y: usize = y.load_be();
-            match suffix.load_be::<u8>() {
-                // 8xy0 - Set Vx = Vy
-                0x0 => state.v[x] = state.v[y],
-
-                // 8xy1 - Set Vx = Vx OR Vy
-                0x1 => state.v[x] |= state.v[y],
-
-                // 8xy2 - Set Vx = Vx AND Vy
-                0x2 => state.v[x] &= state.v[y],
-
-                // 8xy3 - Set Vx = Vx XOR Vy
-                0x3 => state.v[x] ^= state.v[y],
-
-                // 8xy4 - Set Vx = Vx + Vy, set VF = carry
-                0x4 => {
-                    let sum = state.v[x] as u32 + state.v[y] as u32;
-                    state.v[0xF] = (sum > 0xFF) as u8;
-                    state.v[x] = sum as u8;
-                }
-
-                // 8xy5 - Set Vx = Vx - Vy, set VF = NOT borrow
-                0x5 => {
-                    let borrow = state.v[y] > state.v[x];
-                    state.v[0xF] = !borrow as u8;
-                    state.v[x] = state.v[x].wrapping_sub(state.v[y]);
-                }
-
-                // 8xy6 - Set Vx = Vy >> 1, set VF to least sig bit before shift
-                0x6 => {
-                    state.v[0xF] = state.v[y] & 1;
-                    state.v[x] = state.v[y] >> 1;
-                }
-
-                // 8xy7 - Set Vx = Vy - Vx, set VF = NOT borrow
-                0x7 => {
-                    let borrow = state.v[x] > state.v[y];
-                    state.v[0xF] = !borrow as u8;
-                    state.v[x] = state.v[y].wrapping_sub(state.v[x]);
-                }
-
-                // 8xyE - Set Vx = Vy << 1, set VF to most sig bit before shift
-                0xE => {
-                    state.v[0xF] = state.v[y] >> 7;
-                    state.v[x] = state.v[y] << 1;
-                }
-
-                _ => {
-                    invalid_instruction_shutdown(instr_bits);
-                }
-            }
-        }
-
-        // 9xy0 - Skip next instruction if Vx != Vy
-        0x9 => {
-            let (x, y, suffix) = stem.split_at_two(4, 8);
-
-            if suffix.load::<u8>() != 0 {
-                invalid_instruction_shutdown(instr_bits);
-            }
-
-            let x: usize = x.load_be();
-            let y: usize = y.load_be();
-            if state.v[x] != state.v[y] {
-                state.pc += 2;
-            }
-        }
-
-        // Annn - Set I = nnn
-        0xA => state.i = stem.load_be(),
-
-        // Bnnn - Jump to location V0 + nnn
-        0xB => {
-            state.pc = state.v[0] as usize + stem.load_be::<usize>();
-            preserve_pc = true;
-        }
-
-        // Cxkk - Set Vx = random byte AND kk
-        0xC => {
-            use rand::{thread_rng, Rng};
-            let mut rng = thread_rng();
-
-            let (x, kk) = stem.split_at(4);
-            let x: usize = x.load_be();
-            let kk: u8 = kk.load_be();
-
-            state.v[x] = rng.gen::<u8>() & kk;
-        }
-
-        // Dxyn - Draw a sprite at position Vx, Vy with n bytes of sprite data starting at the
-        // address stored in I. Set VF to 01 if any set pixels are unset, and 00 otherwise.
-        0xD => {
-            let (x, y, n) = stem.split_at_two(4, 8);
-            let x_pos = state.v[x.load_be::<usize>()];
-            let y_pos = state.v[y.load_be::<usize>()];
-            let n: usize = n.load_be();
-            let sprite_addr = state.i as usize;
-            assert!(
-                sprite_addr + n - 1 < TOTAL_MEMORY,
-                "tick: invalid Chip-8 memory address in instruction {:x?}",
-                instr_bits.load_be::<u16>(),
-            );
-            let sprite_data = &state.mem[sprite_addr..sprite_addr + n];
-            state.v[0xF] = state.screen.render_sprite(sprite_data, x_pos, y_pos) as u8;
-        }
-
-        // Ex9E and ExA1 (see comments below)
-        0xE => {
-            let (x, suffix) = stem.split_at(4);
-            let _key = state.v[x.load_be::<usize>()];
-
-            match suffix.load_be::<u8>() {
-                // Ex9E - Skip the next instruction if the key corresponding to the hex
-                // value in register VX is pressed
-                0x9E => {
-                    // TODO: implement this
-                }
-
-                // ExA1 - Skip the next instruction if the key corresponding to the hex
-                // value in register VX is NOT pressed
-                0xA1 => {
-                    // TODO: implement this
-                    state.pc += 2;
-                }
-
-                _ => invalid_instruction_shutdown(instr_bits),
-            }
-        }
-
-        // Fx instructions
-        0xF => {
-            let (x, suffix) = stem.split_at(4);
-            let x = x.load_be::<usize>();
-
-            match suffix.load_be::<u8>() {
-                // Fx07 - Set Vx = delay timer value
-                0x07 => state.v[x] = state.dt,
-
-                // Fx0A - Wait for a key press, store the value of the key in Vx
-                0x0A => {
-                    // TODO - HOW OMG?!
-                    state.v[x] = 0; // Just arbitrarily store a 0 press for now
-                }
-
-                // Fx15 - Set delay timer = Vx
-                0x15 => state.dt = state.v[x],
-
-                // Fx18 - Set sound timer = Vx
-                0x18 => state.st = state.v[x],
-
-                // Fx1E - Set I = I + Vx
-                0x1E => state.i += state.v[x] as u16,
-
-                // Fx29 - Set I = location of sprite for digit Vx
-                0x29 => {
-                    // modulo 16 so that if digit over 0xF is requested, it'll just wrap
-                    let digit_offset = (state.v[x] % 16) as u16;
-                    state.i = FONT_ADDRESS as u16 + digit_offset;
-                }
-
-                // Fx33 - Store the BCD equivalent of Vx at addresses I, I + 1, and I + 2
-                0x33 => {
-                    let ones = state.v[x] % 10;
-                    let tens = (state.v[x] / 10) % 10;
-                    let hundreds = state.v[x] / 100; // This is sufficient, max Vx is 255
-
-                    let dst = &mut state.mem[state.i as usize..state.i as usize + 3];
-                    dst[0] = hundreds;
-                    dst[1] = tens;
-                    dst[2] = ones;
-                }
-
-                // Fx55 - Store V0 to Vx inclusive in memory starting at address I.
-                // I is set to I + X + 1 after operation.
-                0x55 => {
-                    let dst = &mut state.mem[state.i as usize..state.i as usize + x + 1];
-                    let src = &state.v[..x + 1];
-                    dst.copy_from_slice(src);
-                    state.i += x as u16 + 1;
-                }
-
-                // Fx65 - Fill V0 to Vx inclusive with the memory starting at address I.
-                // I is set to I + X + 1 after operation.
-                0x65 => {
-                    let dst = &mut state.v[..x + 1];
-                    let src = &state.mem[state.i as usize..state.i as usize + x + 1];
-                    dst.copy_from_slice(src);
-                    state.i += x as u16 + 1;
-                }
-
-                _ => invalid_instruction_shutdown(instr_bits),
-            }
-        }
-
-        _ => unreachable!("tick: instruction prefix above 0xF should be impossible"),
-    }
-
-    if preserve_pc == false {
-        state.pc += 2;
-    }
 }
 
 /// Log an invalid instruction and then shutdown the frontend.

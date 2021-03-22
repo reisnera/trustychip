@@ -38,17 +38,14 @@ pub fn run() {
         cb::audio_sample(0, 0);
     }
 
-    for _ in 0..TIMER_CYCLES_PER_FRAME {
-        for _ in 0..TICKS_PER_TIMER_CYCLE {
-            state::tick()
-        }
-        state::with_mut(|emustate| {
+    state::with_mut(|emustate| {
+        for _ in 0..TIMER_CYCLES_PER_FRAME {
+            for _ in 0..TICKS_PER_TIMER_CYCLE {
+                emustate.tick();
+            }
             emustate.dt = emustate.dt.saturating_sub(1);
             emustate.st = emustate.st.saturating_sub(1);
-        });
-    }
-
-    state::with(|emustate| {
+        }
         cb::video_refresh(&emustate.screen);
     });
 }
