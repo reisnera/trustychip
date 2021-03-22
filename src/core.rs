@@ -25,8 +25,6 @@ pub fn unload_game() {
 }
 
 pub fn run() {
-    cb::input_poll();
-
     // Will set this as a const for now, but this will need to be made adjustable at some point
     // TODO: Need to make user-adjustable tick rate
     const TICK_RATE: usize = 500; // Ticks per second
@@ -40,9 +38,13 @@ pub fn run() {
 
     state::with_mut(|emustate| {
         for _ in 0..TIMER_CYCLES_PER_FRAME {
+            cb::input_poll();
+            let user_input = cb::get_input_states();
+
             for _ in 0..TICKS_PER_TIMER_CYCLE {
-                emustate.tick();
+                emustate.tick(user_input.as_bitslice());
             }
+
             emustate.dt = emustate.dt.saturating_sub(1);
             emustate.st = emustate.st.saturating_sub(1);
         }

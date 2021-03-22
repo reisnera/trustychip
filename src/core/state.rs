@@ -67,7 +67,7 @@ impl ChipState {
     /// A helpful straightforward overview of Chip-8, though there are multiple subtle instruction
     /// differences that are actually from subsequent modifications of the Chip-8 interpreter. So
     /// I would not rely too much on the instruction reference there.
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, user_input: &BitSlice) {
         // If this flag is set, the program counter (pc) will not be incremented at the end
         // of this function (important for returns, jumps, etc.)
         let mut preserve_pc = false;
@@ -268,20 +268,23 @@ impl ChipState {
             // Ex9E and ExA1 (see comments below)
             0xE => {
                 let (x, suffix) = stem.split_at(4);
-                let _key = self.v[x.load_be::<usize>()];
+                let key = self.v[x.load_be::<usize>()] as usize;
 
                 match suffix.load_be::<u8>() {
                     // Ex9E - Skip the next instruction if the key corresponding to the hex
                     // value in register VX is pressed
                     0x9E => {
-                        // TODO: implement this
+                        if user_input[key] {
+                            self.pc += 2;
+                        }
                     }
 
                     // ExA1 - Skip the next instruction if the key corresponding to the hex
                     // value in register VX is NOT pressed
                     0xA1 => {
-                        // TODO: implement this
-                        self.pc += 2;
+                        if !user_input[key] {
+                            self.pc += 2;
+                        }
                     }
 
                     _ => invalid_instruction_shutdown(instr_bits),
@@ -298,10 +301,13 @@ impl ChipState {
                     0x07 => self.v[x] = self.dt,
 
                     // Fx0A - Wait for a key press, store the value of the key in Vx
-                    0x0A => {
-                        // TODO - HOW OMG?!
-                        self.v[x] = 0; // Just arbitrarily store a 0 press for now
-                    }
+                    0x0A => match user_input.first_one() {
+                        // Get the lowest key number that's pressed, if any, and return that
+                        Some(key) => self.v[x] = key as u8,
+                        // Otherwise, preserve the current pc so that this instruction is repeated
+                        // until the user presses a key.
+                        None => preserve_pc = true,
+                    },
 
                     // Fx15 - Set delay timer = Vx
                     0x15 => self.dt = self.v[x],
@@ -542,9 +548,8 @@ fn invalid_instruction_shutdown<T>(instr_bits: &T) -> !
 where
     T: ?Sized + bitvec::field::BitField,
 {
-    cb::log_error(format!(
-        "tick: invalid instruction {:x?}",
+    cb::env_shutdown(format!(
+        "invalid instruction {:x?}",
         instr_bits.load_be::<u16>()
     ));
-    cb::env_shutdown();
 }

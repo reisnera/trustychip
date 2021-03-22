@@ -246,6 +246,7 @@ pub extern "C" fn retro_set_input_state(funcptr: lr::retro_input_state_t) {
 #[no_mangle]
 pub extern "C" fn retro_init() {
     cb::init_log_interface();
+    cb::env_set_input_descriptors();
     core::init();
 }
 
