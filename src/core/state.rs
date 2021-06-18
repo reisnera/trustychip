@@ -1,14 +1,13 @@
 use crate::{callbacks as cb, constants::*, utils::BitSliceExt};
 use bitvec::prelude::*;
-use once_cell::sync::Lazy;
+use parking_lot::{const_mutex, Mutex};
 use smallvec::SmallVec;
 use std::{
     cmp, mem,
     ops::{Deref, DerefMut},
-    sync::Mutex,
 };
 
-static CHIP_STATE: Lazy<Mutex<Option<Box<ChipState>>>> = Lazy::new(|| Mutex::new(None));
+static CHIP_STATE: Mutex<Option<Box<ChipState>>> = const_mutex(None);
 
 type DigitSprite = [u8; 5];
 type FontStore = [DigitSprite; 16];
@@ -500,7 +499,7 @@ pub fn with<F, R>(func: F) -> R
 where
     F: FnOnce(&ChipState) -> R,
 {
-    let state_guard = CHIP_STATE.lock().expect("mutex poisoned");
+    let state_guard = CHIP_STATE.lock();
     let state_ref = state_guard
         .as_deref()
         .expect("emulator state not initialized");
@@ -511,7 +510,7 @@ pub fn with_mut<F, R>(func: F) -> R
 where
     F: FnOnce(&mut ChipState) -> R,
 {
-    let mut state_guard = CHIP_STATE.lock().expect("mutex poisoned");
+    let mut state_guard = CHIP_STATE.lock();
     let state_ref = state_guard
         .as_deref_mut()
         .expect("emulator state not initialized");
@@ -531,13 +530,13 @@ pub fn init() {
     state.mem[FONT_ADDRESS..FONT_ADDRESS + FONT_SIZE].copy_from_slice(font_bytes.as_slice());
 
     // Put the new state into the global variable
-    let mut guard = CHIP_STATE.lock().unwrap();
+    let mut guard = CHIP_STATE.lock();
     *guard = Some(state);
 }
 
 pub fn deinit() {
     cb::log_info("deinitializing core state");
-    let mut guard = CHIP_STATE.lock().unwrap();
+    let mut guard = CHIP_STATE.lock();
     *guard = None;
 }
 
