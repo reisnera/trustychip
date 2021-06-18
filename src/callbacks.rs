@@ -50,7 +50,7 @@ const INPUT_DESCRIPTORS: TrustyChipInputDescriptors = [
     },
 ];
 
-const INPUT_KEY_IDS: Lazy<Vec<lr::retro_key::Type>> =
+static INPUT_KEY_IDS: Lazy<Vec<lr::retro_key::Type>> =
     Lazy::new(|| INPUT_DESCRIPTORS.iter().take(16).map(|d| d.id).collect());
 
 static ENVIRONMENT: Mutex<lr::retro_environment_t> = const_mutex(None);
@@ -190,12 +190,28 @@ pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
     }
 }
 
-pub fn audio_sample(left: i16, right: i16) {
-    let func = AUDIO_SAMPLE
+// pub fn audio_sample(left: i16, right: i16) {
+//     let func = AUDIO_SAMPLE
+//         .lock()
+//         .unwrap()
+//         .expect("AUDIO_SAMPLE callback not initialized");
+//     unsafe {
+//         func(left, right);
+//     }
+// }
+
+/// Send one video frame worth of audio samples to the frontend.
+pub fn audio_sample_batch(sample_data: &[i16]) {
+    let func = AUDIO_SAMPLE_BATCH
         .lock()
-        .expect("AUDIO_SAMPLE callback not initialized");
+        .expect("AUDIO_SAMPLE_BATCH callback not initialized");
+
+    // `sample_data` is composed of pairs of left and right samples.
+    // One audio frame is 2 samples (left and right).
+    assert_eq!(sample_data.len() % 2, 0);
+    let num_audio_frames = (sample_data.len() / 2) as lr::size_t;
     unsafe {
-        func(left, right);
+        func(sample_data.as_ptr(), num_audio_frames);
     }
 }
 

@@ -495,7 +495,7 @@ impl AsRef<[u16; NUM_PIXELS]> for ChipScreen {
     }
 }
 
-pub fn with<F, R>(func: F) -> R
+pub fn _with<F, R>(func: F) -> R
 where
     F: FnOnce(&ChipState) -> R,
 {

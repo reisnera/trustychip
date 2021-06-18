@@ -20,51 +20,8 @@
 #[macro_use]
 mod utils;
 mod callbacks;
+mod constants;
 mod core;
-
-/// Emulator-wide constants
-mod constants {
-    use static_assertions::const_assert;
-
-    /// Total Chip-8 memory available
-    pub const TOTAL_MEMORY: usize = 0x1000;
-
-    /// Address in Chip-8 memory at which hex font data is loaded. This is basically arbitrary
-    /// but should be sufficiently below GAME_ADDRESS.
-    pub const FONT_ADDRESS: usize = 0x100;
-
-    /// Address in Chip-8 memory at which games are loaded
-    pub const GAME_ADDRESS: usize = 0x200;
-
-    /// Maximum size of Chip-8 game (calculated from [TOTAL_MEMORY] and [GAME_ADDRESS])
-    pub const MAX_GAME_SIZE: usize = TOTAL_MEMORY - GAME_ADDRESS;
-
-    /// Screen width
-    pub const SCREEN_WIDTH: usize = 64;
-
-    /// Screen height
-    pub const SCREEN_HEIGHT: usize = 32;
-
-    /// Number of pixels
-    pub const NUM_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
-
-    /// Video frame rate
-    pub const FRAME_RATE: usize = 30;
-
-    /// Audio samples per second
-    pub const AUDIO_SAMPLE_RATE: usize = 44100;
-
-    /// Chip-8 timer cycle rate (this is always 60 Hz)
-    pub const TIMER_CYCLE_RATE: usize = 60;
-
-    /// Audio samples per frame (calculated from [AUDIO_SAMPLE_RATE] and [FRAME_RATE])
-    pub const AUDIO_SAMPLES_PER_FRAME: usize = AUDIO_SAMPLE_RATE / FRAME_RATE;
-    const_assert!(AUDIO_SAMPLE_RATE % FRAME_RATE == 0);
-
-    /// Chip-8 timer cycles per frame
-    pub const TIMER_CYCLES_PER_FRAME: usize = TIMER_CYCLE_RATE / FRAME_RATE;
-    const_assert!(TIMER_CYCLE_RATE % FRAME_RATE == 0);
-}
 
 use self::{callbacks as cb, constants::*};
 use libretro_defs as lr;
