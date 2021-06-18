@@ -1,13 +1,14 @@
-use crate::constants::*;
-use bitvec::prelude::*;
-use libretro_defs as lr;
-use once_cell::sync::Lazy;
 use std::{
     ffi,
     mem::{size_of, MaybeUninit},
     os::raw::{c_char, c_uint, c_void},
-    sync::Mutex,
 };
+
+use crate::constants::*;
+use bitvec::prelude::*;
+use libretro_defs as lr;
+use once_cell::sync::Lazy;
+use parking_lot::{const_mutex, Mutex};
 
 const fn make_keyboard_descriptor(
     id: lr::retro_key::Type,
@@ -52,50 +53,43 @@ const INPUT_DESCRIPTORS: TrustyChipInputDescriptors = [
 const INPUT_KEY_IDS: Lazy<Vec<lr::retro_key::Type>> =
     Lazy::new(|| INPUT_DESCRIPTORS.iter().take(16).map(|d| d.id).collect());
 
-static ENVIRONMENT: Lazy<Mutex<lr::retro_environment_t>> = Lazy::new(|| Mutex::new(None));
-
-static VIDEO_REFRESH: Lazy<Mutex<lr::retro_video_refresh_t>> = Lazy::new(|| Mutex::new(None));
-
-static AUDIO_SAMPLE: Lazy<Mutex<lr::retro_audio_sample_t>> = Lazy::new(|| Mutex::new(None));
-
-static AUDIO_SAMPLE_BATCH: Lazy<Mutex<lr::retro_audio_sample_batch_t>> =
-    Lazy::new(|| Mutex::new(None));
-
-static INPUT_POLL: Lazy<Mutex<lr::retro_input_poll_t>> = Lazy::new(|| Mutex::new(None));
-
-static INPUT_STATE: Lazy<Mutex<lr::retro_input_state_t>> = Lazy::new(|| Mutex::new(None));
-
-static LOGGER: Lazy<Mutex<lr::retro_log_printf_t>> = Lazy::new(|| Mutex::new(None));
+static ENVIRONMENT: Mutex<lr::retro_environment_t> = const_mutex(None);
+static VIDEO_REFRESH: Mutex<lr::retro_video_refresh_t> = const_mutex(None);
+static AUDIO_SAMPLE: Mutex<lr::retro_audio_sample_t> = const_mutex(None);
+static AUDIO_SAMPLE_BATCH: Mutex<lr::retro_audio_sample_batch_t> = const_mutex(None);
+static INPUT_POLL: Mutex<lr::retro_input_poll_t> = const_mutex(None);
+static INPUT_STATE: Mutex<lr::retro_input_state_t> = const_mutex(None);
+static LOGGER: Mutex<lr::retro_log_printf_t> = const_mutex(None);
 
 // Initializers
 
 pub fn init_environment_cb(funcptr: lr::retro_environment_t) {
-    let mut guard = ENVIRONMENT.lock().unwrap();
+    let mut guard = ENVIRONMENT.lock();
     *guard = funcptr;
 }
 
 pub fn init_video_refresh_cb(funcptr: lr::retro_video_refresh_t) {
-    let mut guard = VIDEO_REFRESH.lock().unwrap();
+    let mut guard = VIDEO_REFRESH.lock();
     *guard = funcptr;
 }
 
 pub fn init_audio_sample_cb(funcptr: lr::retro_audio_sample_t) {
-    let mut guard = AUDIO_SAMPLE.lock().unwrap();
+    let mut guard = AUDIO_SAMPLE.lock();
     *guard = funcptr;
 }
 
 pub fn init_audio_sample_batch_cb(funcptr: lr::retro_audio_sample_batch_t) {
-    let mut guard = AUDIO_SAMPLE_BATCH.lock().unwrap();
+    let mut guard = AUDIO_SAMPLE_BATCH.lock();
     *guard = funcptr;
 }
 
 pub fn init_input_poll_cb(funcptr: lr::retro_input_poll_t) {
-    let mut guard = INPUT_POLL.lock().unwrap();
+    let mut guard = INPUT_POLL.lock();
     *guard = funcptr;
 }
 
 pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
-    let mut guard = INPUT_STATE.lock().unwrap();
+    let mut guard = INPUT_STATE.lock();
     *guard = funcptr;
 }
 
@@ -107,7 +101,6 @@ pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
 unsafe fn env_raw<T: ?Sized>(cmd: c_uint, data: *mut T) -> Result<(), ()> {
     let func = ENVIRONMENT
         .lock()
-        .unwrap()
         .expect("ENVIRONMENT callback not initialized");
     match func(cmd, data as *mut c_void) {
         true => Ok(()),
@@ -151,11 +144,11 @@ pub fn init_log_interface() {
         env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)
             .expect("unable to get libretro log interface")
     };
-    *LOGGER.lock().unwrap() = wrapper.log;
+    *LOGGER.lock() = wrapper.log;
 }
 
 pub fn log<S: AsRef<str>>(log_level: lr::retro_log_level::Type, message: S) {
-    if let Some(log_fn) = *LOGGER.lock().unwrap() {
+    if let Some(log_fn) = *LOGGER.lock() {
         let cstring = ffi::CString::new(message.as_ref()).unwrap();
         unsafe {
             log_fn(log_level, concat_to_c_str!("%s\n"), cstring.as_ptr());
@@ -186,11 +179,10 @@ pub fn log_error<S: AsRef<str>>(message: S) {
 pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
     let func = VIDEO_REFRESH
         .lock()
-        .unwrap()
         .expect("VIDEO_REFRESH callback not initialized");
     unsafe {
         func(
-            buffer.as_ref() as *const _ as *const c_void,
+            buffer.as_ref().as_ptr() as *const c_void,
             SCREEN_WIDTH as c_uint,
             SCREEN_HEIGHT as c_uint,
             (SCREEN_WIDTH * size_of::<u16>()) as lr::size_t,
@@ -201,7 +193,6 @@ pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
 pub fn audio_sample(left: i16, right: i16) {
     let func = AUDIO_SAMPLE
         .lock()
-        .unwrap()
         .expect("AUDIO_SAMPLE callback not initialized");
     unsafe {
         func(left, right);
@@ -211,7 +202,6 @@ pub fn audio_sample(left: i16, right: i16) {
 pub fn input_poll() {
     let func = INPUT_POLL
         .lock()
-        .unwrap()
         .expect("INPUT_POLL callback not initialized");
     unsafe {
         func();
@@ -229,7 +219,7 @@ pub fn env_set_input_descriptors() {
             lr::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
             // This is extremely bad but it will be fine as long as libretro doesn't
             // try to write anything to this location, which it shouldn't...
-            &INPUT_DESCRIPTORS as *const _ as *mut TrustyChipInputDescriptors,
+            INPUT_DESCRIPTORS.as_ptr() as *mut TrustyChipInputDescriptors,
         )
         .expect("unable to set input descriptors");
     }
@@ -238,7 +228,6 @@ pub fn env_set_input_descriptors() {
 pub fn get_input_states() -> BitVec {
     let input_state = INPUT_STATE
         .lock()
-        .unwrap()
         .expect("INPUT_STATE callback not initialized");
 
     INPUT_KEY_IDS
