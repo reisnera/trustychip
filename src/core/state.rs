@@ -362,7 +362,7 @@ impl ChipState {
             _ => unreachable!("tick: instruction prefix above 0xF should be impossible"),
         }
 
-        if preserve_pc == false {
+        if !preserve_pc {
             self.pc += 2;
         }
     }

@@ -6,6 +6,7 @@ use std::{
 
 use crate::constants::*;
 use bitvec::prelude::*;
+use crossbeam_utils::sync::Parker;
 use libretro_defs as lr;
 use once_cell::sync::Lazy;
 use parking_lot::{const_mutex, Mutex};
@@ -136,7 +137,10 @@ pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
     unsafe {
         env_raw::<c_void>(lr::RETRO_ENVIRONMENT_SHUTDOWN, std::ptr::null_mut()).unwrap();
     }
-    loop {}
+    // Park this thread
+    let p = Parker::new();
+    p.park();
+    panic!("thread unparked spontaneously");
 }
 
 pub fn init_log_interface() {

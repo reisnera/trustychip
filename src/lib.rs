@@ -49,6 +49,7 @@ pub extern "C" fn retro_api_version() -> c_uint {
 /// # Invariants
 /// Pointers provided in the retro_system_info struct must be statically allocated.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
     assert!(!dest.is_null());
     let sys_info = lr::retro_system_info {
@@ -71,6 +72,7 @@ pub extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
 /// # Timing
 /// Can be called only after retro_load_game() has successfully completed.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) {
     assert!(!dest.is_null());
     let av_info = lr::retro_system_av_info {
