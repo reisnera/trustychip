@@ -17,12 +17,11 @@ pub trait BitSliceExt {
     fn split_at_two(&self, first: usize, second: usize) -> (&Self, &Self, &Self);
 }
 
-impl<O, T> BitSliceExt for BitSlice<O, T>
+impl<T, O> BitSliceExt for BitSlice<T, O>
 where
-    O: BitOrder,
     T: BitStore,
+    O: BitOrder,
 {
-    #[inline]
     fn split_at_two(&self, first: usize, second: usize) -> (&Self, &Self, &Self) {
         assert!(first <= second, "first index must be <= second");
         assert!(second <= self.len(), "index out of bounds");
