@@ -22,8 +22,13 @@ mod utils;
 mod callbacks;
 mod constants;
 mod core;
+mod log;
 
-use self::{callbacks as cb, constants::*};
+use self::{
+    callbacks as cb,
+    constants::*,
+    log::{log_error, log_warn},
+};
 use libretro_defs as lr;
 use std::{
     os::raw::{c_char, c_uint, c_void},
@@ -112,7 +117,7 @@ pub extern "C" fn retro_load_game(game_info_ptr: Option<&lr::retro_game_info>) -
         .and_then(core::load_game)
         .map_or_else(
             |err_msg| {
-                cb::log_error(err_msg);
+                log_error(err_msg);
                 false
             },
             |()| true,
@@ -239,7 +244,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uin
 /// Resets the current game.
 #[no_mangle]
 pub extern "C" fn retro_reset() {
-    cb::log_warn("retro_reset not implemented");
+    log_warn("retro_reset not implemented");
 }
 
 /// Runs the game for one video frame.

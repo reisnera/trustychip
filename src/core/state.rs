@@ -1,4 +1,9 @@
-use crate::{callbacks as cb, constants::*, utils::BitSliceExt};
+use crate::{
+    callbacks as cb,
+    constants::*,
+    log::{log_error, log_info},
+    utils::BitSliceExt,
+};
 use bitvec::prelude::*;
 use parking_lot::{const_mutex, Mutex};
 use smallvec::SmallVec;
@@ -83,13 +88,13 @@ impl ChipState {
                 // 00EE - Return from a subroutine
                 0x0EE => {
                     self.pc = self.stack.pop().unwrap_or_else(|| {
-                        cb::log_error("tick: cannot pop from empty Chip8 stack");
+                        log_error("tick: cannot pop from empty Chip8 stack");
                         panic!();
                     });
                     preserve_pc = true;
                 }
                 // 0nnn - Jump to a machine code routine at nnn. Unused.
-                _ => cb::log_info("tick: ignored instruction to jump to machine code address"),
+                _ => log_info("tick: ignored instruction to jump to machine code address"),
             },
 
             // 1nnn - Jump to location
@@ -518,7 +523,7 @@ where
 }
 
 pub fn init() {
-    cb::log_info("initializing core state");
+    log_info("initializing core state");
     let mut state = Box::new(ChipState::new());
 
     // Make sure hex font data won't overlap with where the game will be loaded
@@ -535,7 +540,7 @@ pub fn init() {
 }
 
 pub fn deinit() {
-    cb::log_info("deinitializing core state");
+    log_info("deinitializing core state");
     let mut guard = CHIP_STATE.lock();
     *guard = None;
 }

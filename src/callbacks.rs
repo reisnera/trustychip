@@ -4,12 +4,13 @@ use std::{
     os::raw::{c_char, c_uint, c_void},
 };
 
-use crate::constants::*;
+use crate::{constants::*, log::log_error};
 use bitvec::prelude::*;
 use crossbeam_utils::sync::Parker;
 use libretro_defs as lr;
 use once_cell::sync::Lazy;
 use parking_lot::{const_mutex, Mutex};
+use smallvec::SmallVec;
 
 const fn make_keyboard_descriptor(
     id: lr::retro_key::Type,
@@ -51,7 +52,7 @@ const INPUT_DESCRIPTORS: TrustyChipInputDescriptors = [
     },
 ];
 
-static INPUT_KEY_IDS: Lazy<Vec<lr::retro_key::Type>> =
+static INPUT_KEY_IDS: Lazy<SmallVec<[lr::retro_key::Type; 16]>> =
     Lazy::new(|| INPUT_DESCRIPTORS.iter().take(16).map(|d| d.id).collect());
 
 static ENVIRONMENT: Mutex<lr::retro_environment_t> = const_mutex(None);
@@ -158,26 +159,6 @@ pub fn log<S: AsRef<str>>(log_level: lr::retro_log_level::Type, message: S) {
             log_fn(log_level, concat_to_c_str!("%s\n"), cstring.as_ptr());
         }
     }
-}
-
-#[inline]
-pub fn _log_debug<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_DEBUG, message.as_ref());
-}
-
-#[inline]
-pub fn log_info<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_INFO, message.as_ref());
-}
-
-#[inline]
-pub fn log_warn<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_WARN, message.as_ref());
-}
-
-#[inline]
-pub fn log_error<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_ERROR, message.as_ref());
 }
 
 pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
