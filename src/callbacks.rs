@@ -8,7 +8,7 @@ use crate::{constants::*, log::log_error};
 use bitvec::prelude::*;
 use crossbeam_utils::sync::Parker;
 use libretro_defs as lr;
-use once_cell::sync::Lazy;
+use once_cell::sync::OnceCell;
 use parking_lot::{const_mutex, Mutex};
 use smallvec::SmallVec;
 
@@ -25,35 +25,7 @@ const fn make_keyboard_descriptor(
     }
 }
 
-type TrustyChipInputDescriptors = [lr::retro_input_descriptor; 17];
-const INPUT_DESCRIPTORS: TrustyChipInputDescriptors = [
-    make_keyboard_descriptor(lr::retro_key::RETROK_0, concat_to_c_str!("0")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_1, concat_to_c_str!("1")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_2, concat_to_c_str!("2")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_3, concat_to_c_str!("3")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_4, concat_to_c_str!("4")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_5, concat_to_c_str!("5")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_6, concat_to_c_str!("6")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_7, concat_to_c_str!("7")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_8, concat_to_c_str!("8")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_9, concat_to_c_str!("9")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_a, concat_to_c_str!("a")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_b, concat_to_c_str!("b")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_c, concat_to_c_str!("c")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_d, concat_to_c_str!("d")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_e, concat_to_c_str!("e")),
-    make_keyboard_descriptor(lr::retro_key::RETROK_f, concat_to_c_str!("f")),
-    lr::retro_input_descriptor {
-        port: 0,
-        device: 0,
-        index: 0,
-        id: 0,
-        description: std::ptr::null(),
-    },
-];
-
-static INPUT_KEY_IDS: Lazy<SmallVec<[lr::retro_key::Type; 16]>> =
-    Lazy::new(|| INPUT_DESCRIPTORS.iter().take(16).map(|d| d.id).collect());
+static INPUT_KEY_IDS: OnceCell<SmallVec<[lr::retro_key::Type; 16]>> = OnceCell::new();
 
 static ENVIRONMENT: Mutex<lr::retro_environment_t> = const_mutex(None);
 static VIDEO_REFRESH: Mutex<lr::retro_video_refresh_t> = const_mutex(None);
@@ -211,16 +183,45 @@ pub fn input_poll() {
 
 /// Set libretro input descriptors
 pub fn env_set_input_descriptors() {
+    type TrustyChipInputDescriptors = [lr::retro_input_descriptor; 17];
+    let mut input_descriptors: Box<TrustyChipInputDescriptors> = Box::new([
+        make_keyboard_descriptor(lr::retro_key::RETROK_0, concat_to_c_str!("0")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_1, concat_to_c_str!("1")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_2, concat_to_c_str!("2")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_3, concat_to_c_str!("3")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_4, concat_to_c_str!("4")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_5, concat_to_c_str!("5")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_6, concat_to_c_str!("6")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_7, concat_to_c_str!("7")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_8, concat_to_c_str!("8")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_9, concat_to_c_str!("9")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_a, concat_to_c_str!("a")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_b, concat_to_c_str!("b")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_c, concat_to_c_str!("c")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_d, concat_to_c_str!("d")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_e, concat_to_c_str!("e")),
+        make_keyboard_descriptor(lr::retro_key::RETROK_f, concat_to_c_str!("f")),
+        lr::retro_input_descriptor {
+            port: 0,
+            device: 0,
+            index: 0,
+            id: 0,
+            description: std::ptr::null(),
+        },
+    ]);
+
     assert!(
-        INPUT_DESCRIPTORS.last().unwrap().description.is_null(),
+        input_descriptors.last().unwrap().description.is_null(),
         "input descriptors array must end in entry containing null description"
     );
+
+    // Ignore the Result as an Err just means that this was already initialized
+    let _ = INPUT_KEY_IDS.set(input_descriptors.iter().take(16).map(|d| d.id).collect());
+
     unsafe {
         env_raw(
             lr::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
-            // This is extremely bad but it will be fine as long as libretro doesn't
-            // try to write anything to this location, which it shouldn't...
-            INPUT_DESCRIPTORS.as_ptr() as *mut TrustyChipInputDescriptors,
+            input_descriptors.as_mut_ptr(),
         )
         .expect("unable to set input descriptors");
     }
@@ -232,6 +233,8 @@ pub fn get_input_states() -> BitVec {
         .expect("INPUT_STATE callback not initialized");
 
     INPUT_KEY_IDS
+        .get()
+        .expect("INPUT_KEY_IDS not initialized")
         .iter()
         .map(|&id| unsafe { input_state(0, lr::RETRO_DEVICE_KEYBOARD, 0, id) != 0 })
         .collect()
