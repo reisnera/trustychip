@@ -278,11 +278,15 @@ pub extern "C" fn retro_serialize_size() -> lr::size_t {
 /// If failed, or size argument is lower than `retro_serialize_size`, should return false.
 /// Returns true on success.
 #[no_mangle]
-pub extern "C" fn retro_serialize(_data: *mut c_void, _size: lr::size_t) {}
+pub extern "C" fn retro_serialize(_data: *mut c_void, _size: lr::size_t) -> bool {
+    false
+}
 
 /// Unserializes (restores) emulator state from a save state.
 #[no_mangle]
-pub extern "C" fn retro_unserialize(_data: *const c_void, _size: lr::size_t) {}
+pub extern "C" fn retro_unserialize(_data: *const c_void, _size: lr::size_t) -> bool {
+    false
+}
 
 /// Disables any cheats.
 #[no_mangle]
