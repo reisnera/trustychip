@@ -7,6 +7,7 @@ use std::{
 use crate::{constants::*, log::log_error};
 use bitvec::prelude::*;
 use crossbeam_utils::sync::Parker;
+use eyre::{eyre, Result, WrapErr};
 use libretro_defs as lr;
 use once_cell::sync::OnceCell;
 use parking_lot::{const_mutex, Mutex};
@@ -72,28 +73,29 @@ pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
 // SAFETY: The object that `data` points to must be the correct type for `cmd`
 // as specified in libretro.h. Note that depending on `cmd`, `data` is either
 // read from or written to.
-unsafe fn env_raw<T: ?Sized>(cmd: c_uint, data: *mut T) -> Result<(), ()> {
+unsafe fn env_raw<T>(cmd: c_uint, data: *mut T) -> Result<()> {
     let func = ENVIRONMENT
         .lock()
-        .expect("ENVIRONMENT callback not initialized");
+        .ok_or_else(|| eyre!("ENVIRONMENT callback not initialized"))?;
+
     match func(cmd, data as *mut c_void) {
         true => Ok(()),
-        false => Err(()),
+        false => Err(eyre!("ENVIRONMENT command {cmd} failed")),
     }
 }
 
 // SAFETY: Caller needs to ensure that the return type T is the appropriate
 // type associated with `cmd`.
-unsafe fn env_get<T>(cmd: c_uint) -> Result<T, ()> {
+unsafe fn env_get<T>(cmd: c_uint) -> Result<T> {
     let mut wrapper = MaybeUninit::uninit();
     env_raw(cmd, wrapper.as_mut_ptr())?;
     Ok(wrapper.assume_init())
 }
 
-pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format::Type) {
+pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format::Type) -> Result<()> {
     unsafe {
         env_raw(lr::RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &mut pixel_format)
-            .expect("unable to set pixel format");
+            .wrap_err("failed to set pixel format")
     }
 }
 

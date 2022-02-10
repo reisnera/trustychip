@@ -98,7 +98,8 @@ pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) 
     }
 
     // Set pixel format
-    cb::env_set_pixel_format(lr::retro_pixel_format::RETRO_PIXEL_FORMAT_RGB565);
+    cb::env_set_pixel_format(lr::retro_pixel_format::RETRO_PIXEL_FORMAT_RGB565)
+        .expect("setting pixel format");
 }
 
 /// Loads a game into the TrustyChip emulator.
