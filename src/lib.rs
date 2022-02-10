@@ -24,11 +24,8 @@ mod constants;
 mod core;
 mod log;
 
-use self::{
-    callbacks as cb,
-    constants::*,
-    log::{log_error, log_warn},
-};
+use self::{callbacks as cb, constants::*};
+use eyre::eyre;
 use libretro_defs as lr;
 use std::{
     os::raw::{c_char, c_uint, c_void},
@@ -108,17 +105,17 @@ pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) 
 #[no_mangle]
 pub extern "C" fn retro_load_game(game_info_ptr: Option<&lr::retro_game_info>) -> bool {
     game_info_ptr
-        .ok_or("in retro_load_game: game_info pointer is null")
+        .ok_or_else(|| eyre!("retro_game_info pointer is null"))
         .and_then(|game_info| match game_info.data.is_null() {
             false => Ok(unsafe {
                 slice::from_raw_parts(game_info.data as *const u8, game_info.size as usize)
             }),
-            true => Err("in retro_load_game: data pointer is null"),
+            true => Err(eyre!("data pointer is null")),
         })
         .and_then(core::load_game)
         .map_or_else(
-            |err_msg| {
-                log_error(err_msg);
+            |e| {
+                tracing::error!("{:#}", e);
                 false
             },
             |()| true,
@@ -245,7 +242,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uin
 /// Resets the current game.
 #[no_mangle]
 pub extern "C" fn retro_reset() {
-    log_warn("retro_reset not implemented");
+    tracing::warn!("retro_reset not implemented");
 }
 
 /// Runs the game for one video frame.

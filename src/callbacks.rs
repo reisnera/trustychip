@@ -1,10 +1,9 @@
 use std::{
-    ffi,
     mem::{size_of, MaybeUninit},
     os::raw::{c_char, c_uint, c_void},
 };
 
-use crate::{constants::*, log::log_error};
+use crate::{constants::*, log::RetroLogMakeWriter};
 use bitvec::prelude::*;
 use crossbeam_utils::sync::Parker;
 use eyre::{eyre, Result, WrapErr};
@@ -34,7 +33,8 @@ static AUDIO_SAMPLE: Mutex<lr::retro_audio_sample_t> = const_mutex(None);
 static AUDIO_SAMPLE_BATCH: Mutex<lr::retro_audio_sample_batch_t> = const_mutex(None);
 static INPUT_POLL: Mutex<lr::retro_input_poll_t> = const_mutex(None);
 static INPUT_STATE: Mutex<lr::retro_input_state_t> = const_mutex(None);
-static LOGGER: Mutex<lr::retro_log_printf_t> = const_mutex(None);
+
+static LOGGER: OnceCell<lr::retro_log_printf_t> = OnceCell::new();
 
 // Initializers
 
@@ -108,7 +108,7 @@ pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format::Type) -> R
 ///
 /// Calls log_error to log the provided message before shutting down.
 pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
-    log_error(message);
+    tracing::error!("{}", message.as_ref());
     unsafe {
         env_raw::<c_void>(lr::RETRO_ENVIRONMENT_SHUTDOWN, std::ptr::null_mut()).unwrap();
     }
@@ -119,18 +119,36 @@ pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
 }
 
 pub fn init_log_interface() {
-    let wrapper: lr::retro_log_callback = unsafe {
-        env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)
-            .expect("unable to get libretro log interface")
-    };
-    *LOGGER.lock() = wrapper.log;
-}
+    if LOGGER.get().is_some() {
+        tracing::warn!("retro logger already initialized");
+        return;
+    }
 
-pub fn log<S: AsRef<str>>(log_level: lr::retro_log_level::Type, message: S) {
-    if let Some(log_fn) = *LOGGER.lock() {
-        let cstring = ffi::CString::new(message.as_ref()).unwrap();
-        unsafe {
-            log_fn(log_level, concat_to_c_str!("%s\n"), cstring.as_ptr());
+    let result: Result<lr::retro_log_callback> = unsafe {
+        env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)
+            .wrap_err("failed to get retro log interface")
+    };
+
+    let subscriber = tracing_subscriber::fmt().with_level(false).without_time();
+
+    match result {
+        Err(e) => {
+            LOGGER.set(None).unwrap();
+            subscriber.with_writer(std::io::stderr).init();
+            tracing::error!("{:#}. Falling back to stderr logging.", e);
+        }
+
+        Ok(lr::retro_log_callback { log: None }) => {
+            LOGGER.set(None).unwrap();
+            subscriber.with_writer(std::io::stderr).init();
+            tracing::warn!("received null logger from frontend. Falling back to stderr logging.");
+        }
+
+        Ok(lr::retro_log_callback { log }) => {
+            LOGGER.set(log).unwrap();
+            let make_writer = RetroLogMakeWriter::new(log);
+            subscriber.with_writer(make_writer).init();
+            tracing::debug!("successfully initialized tracing with retro logger");
         }
     }
 }
@@ -148,16 +166,6 @@ pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
         );
     }
 }
-
-// pub fn audio_sample(left: i16, right: i16) {
-//     let func = AUDIO_SAMPLE
-//         .lock()
-//         .unwrap()
-//         .expect("AUDIO_SAMPLE callback not initialized");
-//     unsafe {
-//         func(left, right);
-//     }
-// }
 
 /// Send one video frame worth of audio samples to the frontend.
 pub fn audio_sample_batch(sample_data: &[i16]) {

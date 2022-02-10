@@ -4,12 +4,13 @@ pub use self::state::{deinit, init};
 use std::ops::{Deref, DerefMut};
 
 use crate::{callbacks as cb, constants::*};
+use eyre::{eyre, Result};
 use once_cell::sync::Lazy;
 use parking_lot::{const_mutex, Mutex, MutexGuard};
 
-pub fn load_game(game_data: &[u8]) -> Result<(), &'static str> {
+pub fn load_game(game_data: &[u8]) -> Result<()> {
     match game_data.len() {
-        0 => Err("cannot load size 0 game"),
+        0 => Err(eyre!("cannot load size 0 game")),
 
         len if len <= MAX_GAME_SIZE => {
             state::with_mut(|emustate| {
@@ -18,7 +19,7 @@ pub fn load_game(game_data: &[u8]) -> Result<(), &'static str> {
             Ok(())
         }
 
-        _ => Err("game size exceeds Chip8 maximum"),
+        _ => Err(eyre!("game size exceeds Chip8 maximum")),
     }
 }
 

@@ -1,22 +1,69 @@
-use crate::callbacks::log;
+use std::{ffi::CString, io};
+
+use either::Either;
 use libretro_defs as lr;
+use tracing::Metadata;
+use tracing_subscriber::fmt::MakeWriter;
 
-#[inline]
-pub fn _log_debug<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_DEBUG, message.as_ref());
+pub struct RetroLogMakeWriter {
+    retro_log_printf: lr::retro_log_printf_t,
 }
 
-#[inline]
-pub fn log_info<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_INFO, message.as_ref());
+impl RetroLogMakeWriter {
+    pub fn new(retro_log_printf: lr::retro_log_printf_t) -> Self {
+        assert!(
+            retro_log_printf.is_some(),
+            "null retro_log_printf provided to RetroLogMakeWriter"
+        );
+        RetroLogMakeWriter { retro_log_printf }
+    }
 }
 
-#[inline]
-pub fn log_warn<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_WARN, message.as_ref());
+impl MakeWriter<'_> for RetroLogMakeWriter {
+    type Writer = Either<io::Stderr, RetroLogWriter>;
+
+    fn make_writer(&self) -> Self::Writer {
+        eprintln!(
+            "WARNING: Make_writer called instead of make_writer_for (why?!). \
+            Writing to stderr."
+        );
+        Either::Left(io::stderr())
+    }
+
+    fn make_writer_for(&self, meta: &Metadata<'_>) -> Self::Writer {
+        let retro_log_level = match *meta.level() {
+            tracing::Level::TRACE | tracing::Level::DEBUG => lr::retro_log_level::RETRO_LOG_DEBUG,
+            tracing::Level::INFO => lr::retro_log_level::RETRO_LOG_INFO,
+            tracing::Level::WARN => lr::retro_log_level::RETRO_LOG_WARN,
+            tracing::Level::ERROR => lr::retro_log_level::RETRO_LOG_ERROR,
+        };
+        Either::Right(RetroLogWriter {
+            retro_log_level,
+            retro_log_printf: self.retro_log_printf,
+        })
+    }
 }
 
-#[inline]
-pub fn log_error<S: AsRef<str>>(message: S) {
-    log(lr::retro_log_level::RETRO_LOG_ERROR, message.as_ref());
+pub struct RetroLogWriter {
+    retro_log_level: lr::retro_log_level::Type,
+    retro_log_printf: lr::retro_log_printf_t,
+}
+
+impl io::Write for RetroLogWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let cstring = CString::new(buf).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        let log_printf = self.retro_log_printf.unwrap();
+        unsafe {
+            log_printf(
+                self.retro_log_level,
+                concat_to_c_str!("%s"),
+                cstring.as_ptr(),
+            );
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
