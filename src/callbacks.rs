@@ -9,7 +9,6 @@ use crossbeam_utils::sync::Parker;
 use eyre::{eyre, Result, WrapErr};
 use libretro_defs as lr;
 use once_cell::sync::OnceCell;
-use parking_lot::{const_mutex, Mutex};
 use smallvec::SmallVec;
 
 const fn make_keyboard_descriptor(
@@ -27,45 +26,39 @@ const fn make_keyboard_descriptor(
 
 static INPUT_KEY_IDS: OnceCell<SmallVec<[lr::retro_key::Type; 16]>> = OnceCell::new();
 
-static ENVIRONMENT: Mutex<lr::retro_environment_t> = const_mutex(None);
-static VIDEO_REFRESH: Mutex<lr::retro_video_refresh_t> = const_mutex(None);
-static AUDIO_SAMPLE: Mutex<lr::retro_audio_sample_t> = const_mutex(None);
-static AUDIO_SAMPLE_BATCH: Mutex<lr::retro_audio_sample_batch_t> = const_mutex(None);
-static INPUT_POLL: Mutex<lr::retro_input_poll_t> = const_mutex(None);
-static INPUT_STATE: Mutex<lr::retro_input_state_t> = const_mutex(None);
+static mut ENVIRONMENT: lr::retro_environment_t = None;
+static mut VIDEO_REFRESH: lr::retro_video_refresh_t = None;
+static mut AUDIO_SAMPLE: lr::retro_audio_sample_t = None;
+static mut AUDIO_SAMPLE_BATCH: lr::retro_audio_sample_batch_t = None;
+static mut INPUT_POLL: lr::retro_input_poll_t = None;
+static mut INPUT_STATE: lr::retro_input_state_t = None;
 
 static LOGGER: OnceCell<lr::retro_log_printf_t> = OnceCell::new();
 
 // Initializers
 
-pub fn init_environment_cb(funcptr: lr::retro_environment_t) {
-    let mut guard = ENVIRONMENT.lock();
-    *guard = funcptr;
+pub unsafe fn init_environment_cb(funcptr: lr::retro_environment_t) {
+    ENVIRONMENT = funcptr;
 }
 
-pub fn init_video_refresh_cb(funcptr: lr::retro_video_refresh_t) {
-    let mut guard = VIDEO_REFRESH.lock();
-    *guard = funcptr;
+pub unsafe fn init_video_refresh_cb(funcptr: lr::retro_video_refresh_t) {
+    VIDEO_REFRESH = funcptr;
 }
 
-pub fn init_audio_sample_cb(funcptr: lr::retro_audio_sample_t) {
-    let mut guard = AUDIO_SAMPLE.lock();
-    *guard = funcptr;
+pub unsafe fn init_audio_sample_cb(funcptr: lr::retro_audio_sample_t) {
+    AUDIO_SAMPLE = funcptr;
 }
 
-pub fn init_audio_sample_batch_cb(funcptr: lr::retro_audio_sample_batch_t) {
-    let mut guard = AUDIO_SAMPLE_BATCH.lock();
-    *guard = funcptr;
+pub unsafe fn init_audio_sample_batch_cb(funcptr: lr::retro_audio_sample_batch_t) {
+    AUDIO_SAMPLE_BATCH = funcptr;
 }
 
-pub fn init_input_poll_cb(funcptr: lr::retro_input_poll_t) {
-    let mut guard = INPUT_POLL.lock();
-    *guard = funcptr;
+pub unsafe fn init_input_poll_cb(funcptr: lr::retro_input_poll_t) {
+    INPUT_POLL = funcptr;
 }
 
-pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
-    let mut guard = INPUT_STATE.lock();
-    *guard = funcptr;
+pub unsafe fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
+    INPUT_STATE = funcptr;
 }
 
 // Callback wrappers
@@ -74,9 +67,7 @@ pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
 // as specified in libretro.h. Note that depending on `cmd`, `data` is either
 // read from or written to.
 unsafe fn env_raw<T>(cmd: c_uint, data: *mut T) -> Result<()> {
-    let func = ENVIRONMENT
-        .lock()
-        .ok_or_else(|| eyre!("ENVIRONMENT callback not initialized"))?;
+    let func = ENVIRONMENT.ok_or_else(|| eyre!("ENVIRONMENT callback not initialized"))?;
 
     match func(cmd, data as *mut c_void) {
         true => Ok(()),
@@ -154,10 +145,8 @@ pub fn init_log_interface() {
 }
 
 pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
-    let func = VIDEO_REFRESH
-        .lock()
-        .expect("VIDEO_REFRESH callback not initialized");
     unsafe {
+        let func = VIDEO_REFRESH.expect("VIDEO_REFRESH callback not initialized");
         func(
             buffer.as_ref().as_ptr() as *const c_void,
             SCREEN_WIDTH as c_uint,
@@ -169,24 +158,20 @@ pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
 
 /// Send one video frame worth of audio samples to the frontend.
 pub fn audio_sample_batch(sample_data: &[i16]) {
-    let func = AUDIO_SAMPLE_BATCH
-        .lock()
-        .expect("AUDIO_SAMPLE_BATCH callback not initialized");
-
-    // `sample_data` is composed of pairs of left and right samples.
-    // One audio frame is 2 samples (left and right).
-    assert_eq!(sample_data.len() % 2, 0);
-    let num_audio_frames = (sample_data.len() / 2) as lr::size_t;
     unsafe {
+        let func = AUDIO_SAMPLE_BATCH.expect("AUDIO_SAMPLE_BATCH callback not initialized");
+
+        // `sample_data` is composed of pairs of left and right samples.
+        // One audio frame is 2 samples (left and right).
+        assert_eq!(sample_data.len() % 2, 0);
+        let num_audio_frames = (sample_data.len() / 2) as lr::size_t;
         func(sample_data.as_ptr(), num_audio_frames);
     }
 }
 
 pub fn input_poll() {
-    let func = INPUT_POLL
-        .lock()
-        .expect("INPUT_POLL callback not initialized");
     unsafe {
+        let func = INPUT_POLL.expect("INPUT_POLL callback not initialized");
         func();
     }
 }
@@ -238,9 +223,7 @@ pub fn env_set_input_descriptors() {
 }
 
 pub fn get_input_states() -> BitVec {
-    let input_state = INPUT_STATE
-        .lock()
-        .expect("INPUT_STATE callback not initialized");
+    let input_state = unsafe { INPUT_STATE.expect("INPUT_STATE callback not initialized") };
 
     INPUT_KEY_IDS
         .get()

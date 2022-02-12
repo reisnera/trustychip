@@ -51,8 +51,8 @@ pub extern "C" fn retro_api_version() -> c_uint {
 /// # Invariants
 /// Pointers provided in the retro_system_info struct must be statically allocated.
 #[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
     assert!(!dest.is_null());
     let sys_info = lr::retro_system_info {
         library_name: concat_to_c_str!("TrustyChip"),
@@ -61,9 +61,7 @@ pub extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
         need_fullpath: false,
         block_extract: false,
     };
-    unsafe {
-        dest.write(sys_info);
-    }
+    dest.write(sys_info);
 }
 
 /// Provides information about system audio/video timings and geometry.
@@ -74,8 +72,8 @@ pub extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
 /// # Timing
 /// Can be called only after retro_load_game() has successfully completed.
 #[no_mangle]
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) {
     assert!(!dest.is_null());
     let av_info = lr::retro_system_av_info {
         timing: lr::retro_system_timing {
@@ -90,9 +88,7 @@ pub extern "C" fn retro_get_system_av_info(dest: *mut lr::retro_system_av_info) 
             aspect_ratio: (SCREEN_WIDTH as f32) / (SCREEN_HEIGHT as f32),
         },
     };
-    unsafe {
-        dest.write(av_info);
-    }
+    dest.write(av_info);
 
     // Set pixel format
     cb::env_set_pixel_format(lr::retro_pixel_format::RETRO_PIXEL_FORMAT_RGB565)
@@ -149,7 +145,8 @@ pub extern "C" fn retro_load_game_special(
 /// Guaranteed to be called before `retro_init` (however can apparently ALSO be called after).
 /// Can be called multiple times.
 #[no_mangle]
-pub extern "C" fn retro_set_environment(funcptr: lr::retro_environment_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_environment(funcptr: lr::retro_environment_t) {
     cb::init_environment_cb(funcptr);
 }
 
@@ -158,7 +155,8 @@ pub extern "C" fn retro_set_environment(funcptr: lr::retro_environment_t) {
 /// # Timing
 /// Guaranteed to have been called before the first call to `retro_run`.
 #[no_mangle]
-pub extern "C" fn retro_set_video_refresh(funcptr: lr::retro_video_refresh_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_video_refresh(funcptr: lr::retro_video_refresh_t) {
     cb::init_video_refresh_cb(funcptr);
 }
 
@@ -167,7 +165,8 @@ pub extern "C" fn retro_set_video_refresh(funcptr: lr::retro_video_refresh_t) {
 /// # Timing
 /// Guaranteed to have been called before the first call to `retro_run`.
 #[no_mangle]
-pub extern "C" fn retro_set_audio_sample(funcptr: lr::retro_audio_sample_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_audio_sample(funcptr: lr::retro_audio_sample_t) {
     cb::init_audio_sample_cb(funcptr);
 }
 
@@ -176,7 +175,8 @@ pub extern "C" fn retro_set_audio_sample(funcptr: lr::retro_audio_sample_t) {
 /// # Timing
 /// Guaranteed to have been called before the first call to `retro_run`.
 #[no_mangle]
-pub extern "C" fn retro_set_audio_sample_batch(funcptr: lr::retro_audio_sample_batch_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_audio_sample_batch(funcptr: lr::retro_audio_sample_batch_t) {
     cb::init_audio_sample_batch_cb(funcptr);
 }
 
@@ -185,7 +185,8 @@ pub extern "C" fn retro_set_audio_sample_batch(funcptr: lr::retro_audio_sample_b
 /// # Timing
 /// Guaranteed to have been called before the first call to `retro_run`.
 #[no_mangle]
-pub extern "C" fn retro_set_input_poll(funcptr: lr::retro_input_poll_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_input_poll(funcptr: lr::retro_input_poll_t) {
     cb::init_input_poll_cb(funcptr);
 }
 
@@ -196,7 +197,8 @@ pub extern "C" fn retro_set_input_poll(funcptr: lr::retro_input_poll_t) {
 /// # Timing
 /// Guaranteed to have been called before the first call to `retro_run`.
 #[no_mangle]
-pub extern "C" fn retro_set_input_state(funcptr: lr::retro_input_state_t) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn retro_set_input_state(funcptr: lr::retro_input_state_t) {
     cb::init_input_state_cb(funcptr);
 }
 
