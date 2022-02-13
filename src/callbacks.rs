@@ -1,6 +1,6 @@
 use std::{
     mem::{size_of, MaybeUninit},
-    os::raw::{c_char, c_uint, c_void},
+    os::raw::*,
 };
 
 use crate::{constants::*, log::RetroLogMakeWriter};
@@ -12,19 +12,19 @@ use once_cell::sync::OnceCell;
 use smallvec::SmallVec;
 
 const fn make_keyboard_descriptor(
-    id: lr::retro_key::Type,
+    id: lr::retro_key,
     description: *const c_char,
 ) -> lr::retro_input_descriptor {
     lr::retro_input_descriptor {
         port: 0,
         device: lr::RETRO_DEVICE_KEYBOARD,
         index: 0,
-        id,
+        id: id as c_uint,
         description,
     }
 }
 
-static INPUT_KEY_IDS: OnceCell<SmallVec<[lr::retro_key::Type; 16]>> = OnceCell::new();
+static INPUT_KEY_IDS: OnceCell<SmallVec<[c_uint; 16]>> = OnceCell::new();
 
 static mut ENVIRONMENT: lr::retro_environment_t = None;
 static mut VIDEO_REFRESH: lr::retro_video_refresh_t = None;
@@ -83,7 +83,7 @@ unsafe fn env_get<T>(cmd: c_uint) -> Result<T> {
     Ok(wrapper.assume_init())
 }
 
-pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format::Type) -> Result<()> {
+pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format) -> Result<()> {
     unsafe {
         env_raw(lr::RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &mut pixel_format)
             .wrap_err("failed to set pixel format")

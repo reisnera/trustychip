@@ -45,7 +45,7 @@ impl MakeWriter<'_> for RetroLogMakeWriter {
 }
 
 pub struct RetroLogWriter {
-    retro_log_level: lr::retro_log_level::Type,
+    retro_log_level: lr::retro_log_level,
     retro_log_printf: lr::retro_log_printf_t,
 }
 

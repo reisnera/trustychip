@@ -8,7 +8,9 @@ fn main() {
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .allowlist_var(r"(?i)retro.*")
         .allowlist_type(r"(?i)retro.*")
-        .default_enum_style(bindgen::EnumVariation::ModuleConsts)
+        .default_enum_style(bindgen::EnumVariation::Rust {
+            non_exhaustive: false,
+        })
         .layout_tests(true)
         .generate()
         .expect("Unable to generate bindings");
