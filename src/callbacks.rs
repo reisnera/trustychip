@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     mem::{size_of, MaybeUninit},
     os::raw::*,
 };
@@ -26,39 +27,51 @@ const fn make_keyboard_descriptor(
 
 static INPUT_KEY_IDS: OnceCell<SmallVec<[c_uint; 16]>> = OnceCell::new();
 
-static mut ENVIRONMENT: lr::retro_environment_t = None;
-static mut VIDEO_REFRESH: lr::retro_video_refresh_t = None;
-static mut AUDIO_SAMPLE: lr::retro_audio_sample_t = None;
-static mut AUDIO_SAMPLE_BATCH: lr::retro_audio_sample_batch_t = None;
-static mut INPUT_POLL: lr::retro_input_poll_t = None;
-static mut INPUT_STATE: lr::retro_input_state_t = None;
-
-static LOGGER: OnceCell<lr::retro_log_printf_t> = OnceCell::new();
+thread_local! {
+    static ENVIRONMENT: Cell<lr::retro_environment_t> = Cell::new(None);
+    static VIDEO_REFRESH: Cell<lr::retro_video_refresh_t> = Cell::new(None);
+    static AUDIO_SAMPLE: Cell<lr::retro_audio_sample_t> = Cell::new(None);
+    static AUDIO_SAMPLE_BATCH: Cell<lr::retro_audio_sample_batch_t> = Cell::new(None);
+    static INPUT_POLL: Cell<lr::retro_input_poll_t> = Cell::new(None);
+    static INPUT_STATE: Cell<lr::retro_input_state_t> = Cell::new(None);
+}
 
 // Initializers
 
-pub unsafe fn init_environment_cb(funcptr: lr::retro_environment_t) {
-    ENVIRONMENT = funcptr;
+pub fn init_environment_cb(funcptr: lr::retro_environment_t) {
+    ENVIRONMENT.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
-pub unsafe fn init_video_refresh_cb(funcptr: lr::retro_video_refresh_t) {
-    VIDEO_REFRESH = funcptr;
+pub fn init_video_refresh_cb(funcptr: lr::retro_video_refresh_t) {
+    VIDEO_REFRESH.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
-pub unsafe fn init_audio_sample_cb(funcptr: lr::retro_audio_sample_t) {
-    AUDIO_SAMPLE = funcptr;
+pub fn init_audio_sample_cb(funcptr: lr::retro_audio_sample_t) {
+    AUDIO_SAMPLE.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
-pub unsafe fn init_audio_sample_batch_cb(funcptr: lr::retro_audio_sample_batch_t) {
-    AUDIO_SAMPLE_BATCH = funcptr;
+pub fn init_audio_sample_batch_cb(funcptr: lr::retro_audio_sample_batch_t) {
+    AUDIO_SAMPLE_BATCH.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
-pub unsafe fn init_input_poll_cb(funcptr: lr::retro_input_poll_t) {
-    INPUT_POLL = funcptr;
+pub fn init_input_poll_cb(funcptr: lr::retro_input_poll_t) {
+    INPUT_POLL.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
-pub unsafe fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
-    INPUT_STATE = funcptr;
+pub fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
+    INPUT_STATE.with(|cell| {
+        cell.set(funcptr);
+    });
 }
 
 // Callback wrappers
@@ -67,7 +80,9 @@ pub unsafe fn init_input_state_cb(funcptr: lr::retro_input_state_t) {
 // as specified in libretro.h. Note that depending on `cmd`, `data` is either
 // read from or written to.
 unsafe fn env_raw<T>(cmd: c_uint, data: *mut T) -> Result<()> {
-    let func = ENVIRONMENT.ok_or_else(|| eyre!("ENVIRONMENT callback not initialized"))?;
+    let func = ENVIRONMENT
+        .with(|cell| cell.get())
+        .ok_or_else(|| eyre!("ENVIRONMENT callback not initialized"))?;
 
     match func(cmd, data as *mut c_void) {
         true => Ok(()),
@@ -93,11 +108,6 @@ pub fn env_set_pixel_format(mut pixel_format: lr::retro_pixel_format) -> Result<
 /// Instruct the frontend to shutdown.
 ///
 /// This is useful to more gracefully shutdown everything in case of an unrecoverable error.
-/// Note: this function must not return as indicated by the ! in return type position. The
-/// infinite loop at the end of this function is just to ensure that this is the case to prevent
-/// any UB.
-///
-/// Calls log_error to log the provided message before shutting down.
 pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
     tracing::error!("{}", message.as_ref());
     unsafe {
@@ -109,36 +119,32 @@ pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
     panic!("thread unparked spontaneously");
 }
 
+/// Initializes the logging interface
+///
+/// Attempts to get the retro logging function from the frontend and initialize tracing with it.
+/// If unable to do so, it will fall back on stderr. Will panic if called more than once.
 pub fn init_log_interface() {
-    if LOGGER.get().is_some() {
-        tracing::warn!("retro logger already initialized");
-        return;
-    }
-
     let result: Result<lr::retro_log_callback> = unsafe {
         env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)
             .wrap_err("failed to get retro log interface")
     };
 
-    let subscriber = tracing_subscriber::fmt().with_level(false).without_time();
+    let subscriber = tracing_subscriber::fmt().without_time();
 
     match result {
         Err(e) => {
-            LOGGER.set(None).unwrap();
             subscriber.with_writer(std::io::stderr).init();
-            tracing::error!("{:#}. Falling back to stderr logging.", e);
+            tracing::error!("falling back to stderr logging due to: {:#}", e);
         }
 
         Ok(lr::retro_log_callback { log: None }) => {
-            LOGGER.set(None).unwrap();
             subscriber.with_writer(std::io::stderr).init();
             tracing::warn!("received null logger from frontend. Falling back to stderr logging.");
         }
 
         Ok(lr::retro_log_callback { log }) => {
-            LOGGER.set(log).unwrap();
             let make_writer = RetroLogMakeWriter::new(log);
-            subscriber.with_writer(make_writer).init();
+            subscriber.with_level(false).with_writer(make_writer).init();
             tracing::debug!("successfully initialized tracing with retro logger");
         }
     }
@@ -146,7 +152,9 @@ pub fn init_log_interface() {
 
 pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
     unsafe {
-        let func = VIDEO_REFRESH.expect("VIDEO_REFRESH callback not initialized");
+        let func = VIDEO_REFRESH
+            .with(|cell| cell.get())
+            .expect("VIDEO_REFRESH callback not initialized");
         func(
             buffer.as_ref().as_ptr() as *const c_void,
             SCREEN_WIDTH as c_uint,
@@ -159,7 +167,9 @@ pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
 /// Send one video frame worth of audio samples to the frontend.
 pub fn audio_sample_batch(sample_data: &[i16]) {
     unsafe {
-        let func = AUDIO_SAMPLE_BATCH.expect("AUDIO_SAMPLE_BATCH callback not initialized");
+        let func = AUDIO_SAMPLE_BATCH
+            .with(|cell| cell.get())
+            .expect("AUDIO_SAMPLE_BATCH callback not initialized");
 
         // `sample_data` is composed of pairs of left and right samples.
         // One audio frame is 2 samples (left and right).
@@ -171,7 +181,9 @@ pub fn audio_sample_batch(sample_data: &[i16]) {
 
 pub fn input_poll() {
     unsafe {
-        let func = INPUT_POLL.expect("INPUT_POLL callback not initialized");
+        let func = INPUT_POLL
+            .with(|cell| cell.get())
+            .expect("INPUT_POLL callback not initialized");
         func();
     }
 }
@@ -223,7 +235,9 @@ pub fn env_set_input_descriptors() {
 }
 
 pub fn get_input_states() -> BitVec {
-    let input_state = unsafe { INPUT_STATE.expect("INPUT_STATE callback not initialized") };
+    let input_state = INPUT_STATE
+        .with(|cell| cell.get())
+        .expect("INPUT_STATE callback not initialized");
 
     INPUT_KEY_IDS
         .get()
