@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 bitvec = "1.0.0"
 crossbeam-utils = "0.8.7"
+crossbeam-queue = "0.3.4"
 either = "1.6.1"
 eyre = "0.6.6"
 libretro-defs = { path = "libretro-defs" }

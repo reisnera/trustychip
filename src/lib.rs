@@ -125,6 +125,7 @@ pub extern "C" fn retro_load_game(game_info_ptr: Option<&lr::retro_game_info>) -
 #[no_mangle]
 pub extern "C" fn retro_unload_game() {
     core::unload_game();
+    log::forward_retro_logs();
 }
 
 /// Loads a "special" game. Not used for this emulator.
@@ -209,9 +210,10 @@ pub unsafe extern "C" fn retro_set_input_state(funcptr: lr::retro_input_state_t)
 /// initilized before this function is called.
 #[no_mangle]
 pub extern "C" fn retro_init() {
-    cb::init_log_interface();
+    log::init_log_interface();
     cb::env_set_input_descriptors();
     core::init();
+    log::forward_retro_logs();
 }
 
 /// Deinitialized TrustyChip.
@@ -220,6 +222,7 @@ pub extern "C" fn retro_init() {
 #[no_mangle]
 pub extern "C" fn retro_deinit() {
     core::deinit();
+    log::forward_retro_logs();
 }
 
 /// Sets device to be used for player 'port'.
@@ -245,6 +248,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: c_uint, _device: c_uin
 #[no_mangle]
 pub extern "C" fn retro_reset() {
     tracing::warn!("retro_reset not implemented");
+    log::forward_retro_logs();
 }
 
 /// Runs the game for one video frame.
@@ -259,6 +263,7 @@ pub extern "C" fn retro_reset() {
 #[no_mangle]
 pub extern "C" fn retro_run() {
     core::run();
+    log::forward_retro_logs();
 }
 
 /// Returns the amount of data TrustyChip requires to serialize the emulator state.

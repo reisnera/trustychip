@@ -4,7 +4,7 @@ use std::{
     os::raw::*,
 };
 
-use crate::{constants::*, log::RetroLogMakeWriter};
+use crate::constants::*;
 use bitvec::prelude::*;
 use crossbeam_utils::sync::Parker;
 use eyre::{eyre, Result, WrapErr};
@@ -92,7 +92,7 @@ unsafe fn env_raw<T>(cmd: c_uint, data: *mut T) -> Result<()> {
 
 // SAFETY: Caller needs to ensure that the return type T is the appropriate
 // type associated with `cmd`.
-unsafe fn env_get<T>(cmd: c_uint) -> Result<T> {
+pub unsafe fn env_get<T>(cmd: c_uint) -> Result<T> {
     let mut wrapper = MaybeUninit::uninit();
     env_raw(cmd, wrapper.as_mut_ptr())?;
     Ok(wrapper.assume_init())
@@ -117,37 +117,6 @@ pub fn env_shutdown<S: AsRef<str>>(message: S) -> ! {
     let p = Parker::new();
     p.park();
     panic!("thread unparked spontaneously");
-}
-
-/// Initializes the logging interface
-///
-/// Attempts to get the retro logging function from the frontend and initialize tracing with it.
-/// If unable to do so, it will fall back on stderr. Will panic if called more than once.
-pub fn init_log_interface() {
-    let result: Result<lr::retro_log_callback> = unsafe {
-        env_get(lr::RETRO_ENVIRONMENT_GET_LOG_INTERFACE)
-            .wrap_err("failed to get retro log interface")
-    };
-
-    let subscriber = tracing_subscriber::fmt().without_time();
-
-    match result {
-        Err(e) => {
-            subscriber.with_writer(std::io::stderr).init();
-            tracing::error!("falling back to stderr logging due to: {:#}", e);
-        }
-
-        Ok(lr::retro_log_callback { log: None }) => {
-            subscriber.with_writer(std::io::stderr).init();
-            tracing::warn!("received null logger from frontend. Falling back to stderr logging.");
-        }
-
-        Ok(lr::retro_log_callback { log }) => {
-            let make_writer = RetroLogMakeWriter::new(log);
-            subscriber.with_level(false).with_writer(make_writer).init();
-            tracing::debug!("successfully initialized tracing with retro logger");
-        }
-    }
 }
 
 pub fn video_refresh<T: AsRef<[u16; NUM_PIXELS]>>(buffer: &T) {
