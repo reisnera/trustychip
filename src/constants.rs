@@ -23,7 +23,7 @@ pub const SCREEN_HEIGHT: usize = 32;
 pub const NUM_PIXELS: usize = SCREEN_WIDTH * SCREEN_HEIGHT;
 
 /// Video frame rate
-pub const FRAME_RATE: usize = 30;
+pub const FRAME_RATE: usize = 60;
 
 /// Chip-8 timer cycle rate (this is always 60 Hz)
 pub const TIMER_CYCLE_RATE: usize = 60;
