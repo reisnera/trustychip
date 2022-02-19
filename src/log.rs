@@ -69,7 +69,7 @@ pub fn forward_retro_logs() {
             unsafe {
                 log_printf(
                     log_entry.log_level,
-                    concat_to_c_str!("%s"),
+                    c_str!("%s"),
                     log_entry.c_string.as_ptr(),
                 );
             }

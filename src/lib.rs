@@ -55,9 +55,9 @@ pub extern "C" fn retro_api_version() -> c_uint {
 pub unsafe extern "C" fn retro_get_system_info(dest: *mut lr::retro_system_info) {
     assert!(!dest.is_null());
     let sys_info = lr::retro_system_info {
-        library_name: concat_to_c_str!("TrustyChip"),
-        library_version: concat_to_c_str!(env!("CARGO_PKG_VERSION")),
-        valid_extensions: concat_to_c_str!("ch8"),
+        library_name: c_str!("TrustyChip"),
+        library_version: c_str!(env!("CARGO_PKG_VERSION")),
+        valid_extensions: c_str!("ch8"),
         need_fullpath: false,
         block_extract: false,
     };
