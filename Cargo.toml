@@ -30,6 +30,9 @@ features = ["std", "fmt", "smallvec", "parking_lot"]
 [profile.dev]
 panic = "abort"
 
+[profile.dev.package."*"]
+opt-level = 1
+
 [profile.release]
 panic = "abort"
 lto = "thin"
