@@ -2,11 +2,10 @@ use std::{cell::Cell, ffi::CString, io};
 
 use crate::callbacks::env_get;
 use crossbeam_queue::SegQueue;
-use either::Either;
 use eyre::{Result, WrapErr};
 use libretro_defs as lr;
 use tracing::Metadata;
-use tracing_subscriber::fmt::MakeWriter;
+use tracing_subscriber::fmt::{writer::EitherWriter, MakeWriter};
 
 static RETRO_LOG_QUEUE: SegQueue<RetroLogEntry> = SegQueue::new();
 
@@ -93,14 +92,14 @@ impl RetroLogMakeWriter {
 }
 
 impl MakeWriter<'_> for RetroLogMakeWriter {
-    type Writer = Either<io::Stderr, RetroLogWriter>;
+    type Writer = EitherWriter<io::Stderr, RetroLogWriter>;
 
     fn make_writer(&self) -> Self::Writer {
         eprintln!(
             "WARNING: tracing called make_writer instead of make_writer_for (why?!). \
             Writing to stderr."
         );
-        Either::Left(io::stderr())
+        EitherWriter::A(io::stderr())
     }
 
     fn make_writer_for(&self, meta: &Metadata<'_>) -> Self::Writer {
@@ -110,7 +109,7 @@ impl MakeWriter<'_> for RetroLogMakeWriter {
             tracing::Level::WARN => lr::retro_log_level::RETRO_LOG_WARN,
             tracing::Level::ERROR => lr::retro_log_level::RETRO_LOG_ERROR,
         };
-        Either::Right(RetroLogWriter { retro_log_level })
+        EitherWriter::B(RetroLogWriter { retro_log_level })
     }
 }
 
